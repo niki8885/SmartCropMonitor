@@ -228,3 +228,48 @@ class RotationStatus(str, enum.Enum):
     RESTING   = "RESTING"
     COMPLETED = "COMPLETED"
     SKIPPED   = "SKIPPED"
+
+
+class FertilizationMethod(str, enum.Enum):
+    BROADCAST = "BROADCAST"
+    INJECTION = "INJECTION"
+    INCORPORATION = "INCORPORATION"
+    FOLIAR = "FOLIAR"
+    FERTIGATION = "FERTIGATION"
+    BAND_PLACEMENT = "BAND_PLACEMENT"
+    TOP_DRESSING = "TOP_DRESSING"
+    SIDE_DRESSING = "SIDE_DRESSING"
+    OTHER = "OTHER"
+
+
+class PesticideTargetType(str, enum.Enum):
+    PEST = "PEST"
+    DISEASE = "DISEASE"
+    WEED = "WEED"
+    GROWTH = "GROWTH"
+    OTHER = "OTHER"
+
+
+class SeedTreatmentType(str, enum.Enum):
+    NONE = "NONE"
+    FUNGICIDE = "FUNGICIDE"
+    INSECTICIDE = "INSECTICIDE"
+    COMBINED = "COMBINED"
+    BIOLOGICAL = "BIOLOGICAL"
+    PELLETING = "PELLETING"
+    OTHER = "OTHER"
+
+
+class TillageType(str, enum.Enum):
+    CONVENTIONAL = "CONVENTIONAL"
+    MINIMUM = "MINIMUM"
+    NO_TILL = "NO_TILL"
+    STRIP_TILL = "STRIP_TILL"
+    DEEP_LOOSENING = "DEEP_LOOSENING"
+
+
+class HarvestQualityUnit(str, enum.Enum):
+    PERCENT = "PERCENT"
+    MG_KG = "MG_KG"
+    KG_HL = "KG_HL"
+    OTHER = "OTHER"
