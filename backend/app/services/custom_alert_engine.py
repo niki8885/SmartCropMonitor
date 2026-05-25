@@ -186,6 +186,7 @@ def evaluate_custom_alert_rules(
                 "rule_id": rule.id,
                 "rule_name": rule.name,
                 "condition": condition,
+                "notify": (rule.action or {}).get("notify", True),
                 "source": source,
                 "location_id": location_id,
                 "sensor_id": sensor_id,

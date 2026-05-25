@@ -130,7 +130,7 @@ def _build_html(user_name: str, alerts: list) -> str:
 
 def send_morning_briefing_for_user(db: Session, user) -> bool:
     """Отправляет письмо одному пользователю. Возвращает True если успешно."""
-    if not user.email:
+    if not user.email or not user.email_enabled:
         return False
 
     active_alerts = (
@@ -174,7 +174,11 @@ def run_morning_briefing():
     logger.info("[Briefing] Starting morning briefing job...")
     db: Session = next(get_db())
     try:
-        users = db.query(UserDB).filter(UserDB.email.isnot(None)).all()
+        users = (
+            db.query(UserDB)
+            .filter(UserDB.email.isnot(None), UserDB.email_enabled == True)
+            .all()
+        )
         sent = sum(send_morning_briefing_for_user(db, u) for u in users)
         logger.info(f"[Briefing] Done. Sent: {sent}/{len(users)}")
     finally:

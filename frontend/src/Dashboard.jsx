@@ -18,6 +18,7 @@ import SegmentationModal from './components/SegmentationModal';
 import ManualFieldModal from './components/ManualFieldModal';
 import MorningBriefingPanel from './components/MorningBriefingPanel';
 import EgnReportPanel from './components/EgnReportPanel';
+import SettingsPanel from './components/SettingsPanel';
 import logo from './assets/logo1.png';
 
 // ── Tab definitions ──────────────────────────────────────────────────────────
@@ -341,7 +342,7 @@ const EmptyState = ({ text }) => (
 // ══════════════════════════════════════════════════════════════════════════════
 const Dashboard = ({ userId, onLogout }) => {
   const { largeFonts, toggleFonts } = useFontSize();
-  const { t, lang, setLang } = useLang();
+  const { t } = useLang();
 
   const [activeTab, setActiveTab]           = useState('overview');
   const [locations, setLocations]           = useState([]);
@@ -355,6 +356,7 @@ const Dashboard = ({ userId, onLogout }) => {
   const [showSegmentation, setShowSegmentation]     = useState(false);
   const [showManualField, setShowManualField]       = useState(false);
   const [segmentationStatus, setSegmentationStatus] = useState(null);
+  const [menuOpen, setMenuOpen]                     = useState(false);
   const fieldMapRef = useRef(null);
 
   const mapProps = {
@@ -487,6 +489,11 @@ const Dashboard = ({ userId, onLogout }) => {
           }/>
         );
 
+      case 'settings':
+        return (
+          <SettingsPanel userId={userId} onBack={() => setActiveTab('overview')} />
+        );
+
       default:
         return null;
     }
@@ -530,13 +537,6 @@ const Dashboard = ({ userId, onLogout }) => {
         <WeatherBadge currentWeather={currentWeather} t={t}/>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-          <select value={lang} onChange={e => setLang(e.target.value)} style={styles.langSelect}>
-            <option value="hu">🇭🇺 Magyar</option>
-            <option value="en">🇬🇧 English</option>
-            <option value="fr">🇫🇷 Français</option>
-            <option value="de">🇩🇪 Deutsch</option>
-          </select>
-
           <button
             onClick={toggleFonts}
             title={largeFonts ? t('font_switch_to_normal') : t('font_switch_to_large')}
@@ -553,12 +553,47 @@ const Dashboard = ({ userId, onLogout }) => {
             <span style={{ fontSize: 10 }}>A</span>
           </button>
 
-          <button onClick={onLogout} style={styles.logoutBtn}>{t('logout')}</button>
+          <div style={styles.userMenuWrap}>
+            <button
+              onClick={() => setMenuOpen(v => !v)}
+              style={styles.menuBtn}
+              title="Menu"
+              aria-label="Menu"
+              aria-expanded={menuOpen}
+            >
+              <span style={styles.menuBars}>☰</span>
+            </button>
+
+            {menuOpen && (
+              <div style={styles.userMenu}>
+                <button
+                  onClick={() => {
+                    setActiveTab('settings');
+                    setMenuOpen(false);
+                  }}
+                  style={styles.menuItem}
+                >
+                  <span style={styles.menuIcon}>*</span>
+                  <span>{t('tab_settings')}</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onLogout();
+                  }}
+                  style={{ ...styles.menuItem, ...styles.menuItemDanger }}
+                >
+                  <span style={styles.menuIcon}>→</span>
+                  <span>{t('logout')}</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
       {/* ── Tab navigation ── */}
-      <nav style={styles.tabNav}>
+      <nav style={{ ...styles.tabNav, display: activeTab === 'settings' ? 'none' : 'flex' }}>
         {TABS.map(tab => (
           <button
             key={tab.id}
@@ -698,7 +733,65 @@ const styles = {
     background: '#f0ebe3', color: 'var(--color-accent-chernozem)',
     cursor: 'pointer', fontSize: 12, fontWeight: 700,
     fontFamily: 'inherit', outline: 'none',
+  userMenuWrap: {
+    position: 'relative',
+    flexShrink: 0,
+  },
+  menuBtn: {
+    width: 38,
+    height: 32,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'var(--color-accent-mulberry)',
+    color: '#fff',
+    border: 'none',
+    borderRadius: 8,
+    cursor: 'pointer',
+    boxShadow: '0 1px 4px rgba(0,0,0,0.14)',
+  },
+  menuBars: {
+    fontSize: 19,
+    lineHeight: 1,
+    fontWeight: 800,
+  },
+  userMenu: {
+    position: 'absolute',
+    top: 38,
+    right: 0,
+    minWidth: 170,
+    padding: 6,
+    background: '#fff',
+    border: '1px solid var(--color-accent-soil)',
+    borderRadius: 8,
+    boxShadow: '0 12px 28px rgba(36,41,44,0.16)',
+    zIndex: 300,
+  },
+  menuItem: {
+    width: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 9,
+    padding: '9px 10px',
+    border: 'none',
+    borderRadius: 6,
+    background: 'transparent',
+    color: 'var(--color-accent-chernozem)',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    fontSize: 13,
+    fontWeight: 700,
+    textAlign: 'left',
+  },
+  menuItemDanger: {
+    color: 'var(--color-accent-mulberry)',
+  },
+  menuIcon: {
+    width: 18,
+    textAlign: 'center',
+    fontWeight: 900,
   },
 };
 
 export default Dashboard;
+

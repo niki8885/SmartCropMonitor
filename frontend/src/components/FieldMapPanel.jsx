@@ -122,16 +122,49 @@ function _renderAnomalyLayer(map, anomalyRecords, srcId, layerId) {
   map.on('mouseleave', layerId, () => { map.getCanvas().style.cursor = ''; });
 }
 
-function gridToGeoJSON(z, x, y) {
+function gridToPolygonGeoJSON(z, x, y) {
   const needsConversion = isUtm([x[0], y[0]]);
   const features = [];
-  const xWgs = needsConversion ? x.map(ex => utmToWgs84(ex, y[0])[0]) : x;
-  for (let row = 0; row < y.length; row++) {
-    const latVal = needsConversion ? utmToWgs84(x[0], y[row])[1] : y[row];
-    for (let col = 0; col < x.length; col++) {
-      const val = z[row]?.[col];
-      if (val === null || val === undefined || isNaN(val)) continue;
-      features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [needsConversion ? xWgs[col] : x[col], latVal] }, properties: { value: val } });
+
+  if (needsConversion) {
+    const dx = x.length > 1 ? Math.abs(x[1] - x[0]) / 2 : 15;
+    const dy = y.length > 1 ? Math.abs(y[1] - y[0]) / 2 : 15;
+    for (let row = 0; row < y.length; row++) {
+      for (let col = 0; col < x.length; col++) {
+        const val = z[row]?.[col];
+        if (val === null || val === undefined || isNaN(val)) continue;
+        const cx = x[col], cy = y[row];
+        features.push({
+          type: 'Feature',
+          geometry: { type: 'Polygon', coordinates: [[
+            utmToWgs84(cx - dx, cy - dy),
+            utmToWgs84(cx + dx, cy - dy),
+            utmToWgs84(cx + dx, cy + dy),
+            utmToWgs84(cx - dx, cy + dy),
+            utmToWgs84(cx - dx, cy - dy),
+          ]] },
+          properties: { value: val },
+        });
+      }
+    }
+  } else {
+    const dx = x.length > 1 ? Math.abs(x[1] - x[0]) / 2 : 0.0001;
+    const dy = y.length > 1 ? Math.abs(y[1] - y[0]) / 2 : 0.0001;
+    for (let row = 0; row < y.length; row++) {
+      for (let col = 0; col < x.length; col++) {
+        const val = z[row]?.[col];
+        if (val === null || val === undefined || isNaN(val)) continue;
+        const cx = x[col], cy = y[row];
+        features.push({
+          type: 'Feature',
+          geometry: { type: 'Polygon', coordinates: [[
+            [cx - dx, cy - dy], [cx + dx, cy - dy],
+            [cx + dx, cy + dy], [cx - dx, cy + dy],
+            [cx - dx, cy - dy],
+          ]] },
+          properties: { value: val },
+        });
+      }
     }
   }
   return { type: 'FeatureCollection', features };
@@ -351,7 +384,8 @@ const FieldMapPanel = forwardRef(({ userId, locationId, locationCenter, onAddLoc
       } else {
         map.addSource(SRC, { type: 'geojson', data: fields });
         map.addLayer({ id: 'fields-fill', type: 'fill', source: SRC, paint: { 'fill-color': ['case',['==',['get','field_type'],'crop'],'rgba(134,197,75,0.25)','rgba(100,160,255,0.25)'], 'fill-opacity': ['case',['boolean',['feature-state','hover'],false],0.55,0.3] } });
-        map.addLayer({ id: 'fields-outline', type: 'line', source: SRC, paint: { 'line-color': '#86c54b', 'line-width': 2.5 } });
+        map.addLayer({ id: 'fields-outline-case', type: 'line', source: SRC, paint: { 'line-color': '#000', 'line-width': 5, 'line-opacity': 0.35 } });
+        map.addLayer({ id: 'fields-outline', type: 'line', source: SRC, paint: { 'line-color': '#fff', 'line-width': 2.5 } });
         map.addLayer({ id: 'fields-label', type: 'symbol', source: SRC, layout: { 'text-field': ['get','label'], 'text-size': 13, 'text-font': ['DIN Pro Medium','Arial Unicode MS Regular'] }, paint: { 'text-color': '#fff', 'text-halo-color': '#1a2a12', 'text-halo-width': 1.5 } });
 
         let hoverId = null;
@@ -389,7 +423,7 @@ const FieldMapPanel = forwardRef(({ userId, locationId, locationCenter, onAddLoc
         return;
       }
       const { z, x, y } = metricData;
-      const gj   = gridToGeoJSON(z, x, y);
+      const gj   = gridToPolygonGeoJSON(z, x, y);
       const meta = METRIC_META[metric];
       let dMin = Infinity, dMax = -Infinity;
       gj.features.forEach(f => { const v = f.properties.value; if (v < dMin) dMin = v; if (v > dMax) dMax = v; });
@@ -399,15 +433,13 @@ const FieldMapPanel = forwardRef(({ userId, locationId, locationCenter, onAddLoc
       if (map.getSource(HM_SRC)) {
         // Reuse existing source and layer to avoid flicker on metric switch
         map.getSource(HM_SRC).setData(gj);
-        if (map.getLayer(HM_LAYER)) map.setPaintProperty(HM_LAYER, 'circle-color', colorExpr);
+        if (map.getLayer(HM_LAYER)) map.setPaintProperty(HM_LAYER, 'fill-color', colorExpr);
       } else {
         map.addSource(HM_SRC, { type: 'geojson', data: gj });
-        map.addLayer({ id: HM_LAYER, type: 'circle', source: HM_SRC, paint: {
-          'circle-color': colorExpr,
-          'circle-radius': ['interpolate',['exponential',2],['zoom'], 7,1, 10,2.5, 12,5, 14,9, 16,16, 18,28],
-          'circle-opacity': 0.75,
-          'circle-blur': ['interpolate',['linear'],['zoom'], 8,1.5, 12,0.8, 15,0.3, 18,0],
-          'circle-stroke-width': 0, 'circle-pitch-alignment': 'map',
+        map.addLayer({ id: HM_LAYER, type: 'fill', source: HM_SRC, paint: {
+          'fill-color': colorExpr,
+          'fill-opacity': 0.75,
+          'fill-antialias': false,
         } }, map.getLayer('fields-fill') ? 'fields-fill' : undefined);
       }
     });

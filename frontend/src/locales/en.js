@@ -456,6 +456,7 @@ const en = {
   tab_tasks:             'Tasks',
   tab_sensors:           'Sensors',
   tab_fieldwork:         'Field Work',
+  tab_settings:          'Settings',
 
   // ── FieldMapPanel extras ────────────────────────────────────────────────────
   fmp_overlay_none:      'None',
@@ -722,6 +723,18 @@ const en = {
   city_placeholder:        'City',
   farm_name_placeholder:   'Farm name',
   farm_size_placeholder:   'Area (ha)',
+  settings_title:          'Settings',
+  settings_back:           'Back',
+  settings_nav_preferences: 'Preferences',
+  settings_no_email:       'No email address set',
+  settings_language:       'Language',
+  settings_language_desc:  'Choose the display language for the application.',
+  settings_email_notifications: 'Email notifications',
+  settings_email_notifications_desc: 'Receive urgent alerts and daily briefing emails at your account email address.',
+  settings_email_required: 'Add an email address to your profile before enabling email notifications.',
+  settings_saved:          'Settings saved.',
+  settings_save_failed:    'Could not save settings.',
+  settings_load_failed:    'Could not load settings.',
 
 
   // ── Tabs (new) ─────────────────────────────────────────────────────────────

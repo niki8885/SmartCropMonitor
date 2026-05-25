@@ -103,6 +103,8 @@ def test_morning_briefing(user_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="User not found")
     if not user.email:
         raise HTTPException(status_code=400, detail="User has no email set")
+    if not user.email_enabled:
+        raise HTTPException(status_code=400, detail="Email notifications are disabled for this user")
 
     success = send_morning_briefing_for_user(db, user)
     if success:

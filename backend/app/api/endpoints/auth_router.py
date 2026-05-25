@@ -33,6 +33,7 @@ class UserLogin(BaseModel):
 
 class UserUpdateProfile(BaseModel):
     email:        Optional[str]   = None
+    email_enabled: Optional[bool] = None
     first_name:   Optional[str]   = None
     last_name:    Optional[str]   = None
     phone:        Optional[str]   = None
@@ -55,6 +56,7 @@ def _user_profile(user: UserDB) -> dict:
         "user_id":     user.id,
         "username":    user.username,
         "email":       user.email,
+        "email_enabled": bool(user.email_enabled),
         "first_name":  user.first_name,
         "last_name":   user.last_name,
         "phone":       user.phone,

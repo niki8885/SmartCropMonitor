@@ -11,6 +11,7 @@ from app.core.database import get_db, Events, EventsRules, UserTask
 from app.core.schemas import (
     EventType, StatusType, Status_task, Priority_task
 )
+from app.events.urgent_email_alerts import deliver_pending_urgent_alerts
 from pydantic import BaseModel, ConfigDict, model_validator
 
 router = APIRouter(prefix="/events", tags=["Alerts & Tasks"])
@@ -214,6 +215,7 @@ def create_manual_alert(alert_data: ManualAlertCreate, db: Session = Depends(get
     try:
         db.commit()
         db.refresh(new_event)
+        deliver_pending_urgent_alerts(db, event_ids=[new_event.id])
         return new_event
     except Exception:
         db.rollback()

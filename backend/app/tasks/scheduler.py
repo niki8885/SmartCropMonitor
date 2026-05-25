@@ -4,6 +4,8 @@ from app.core.database import SessionLocal
 from app.services.orchestrator import full_sync_process, short_sync_process
 from app.services.storage_cleanup import cleanup_failed_datasets
 from app.events.morning_briefing_email import run_morning_briefing
+from app.events.alerts_orchestrator import run_all_alert_checks
+from app.events.urgent_email_alerts import run_urgent_alert_delivery
 import logging
 
 executors = {
@@ -72,6 +74,24 @@ scheduler.add_job(
     minute=30,
     id="daily_storage_cleanup",
     replace_existing=True,
+)
+
+scheduler.add_job(
+    run_all_alert_checks,
+    "interval",
+    minutes=15,
+    id="near_real_time_alert_checks",
+    replace_existing=True,
+    max_instances=1,
+)
+
+scheduler.add_job(
+    run_urgent_alert_delivery,
+    "interval",
+    minutes=5,
+    id="urgent_alert_email_retry",
+    replace_existing=True,
+    max_instances=1,
 )
 
 scheduler.add_job(

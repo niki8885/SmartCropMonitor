@@ -8,6 +8,7 @@ from app.core.database import UserLocation, FieldAnalysis, get_db, WeatherHistor
 from app.services.weather_service import current_weather_request
 from app.services.spraying_service import calculate_spraying_window
 from app.services.custom_alert_engine import build_metric_snapshot, evaluate_custom_alert_rules
+from app.events.urgent_email_alerts import deliver_pending_urgent_alerts
 from typing import Any
 
 router = APIRouter()
@@ -68,6 +69,7 @@ async def get_current_weather(
     )
     if created:
         db.commit()
+        deliver_pending_urgent_alerts(db, event_ids=[event.id for event in created])
 
     return weather
 
@@ -117,6 +119,7 @@ async def get_latest_location_weather(
     )
     if created:
         db.commit()
+        deliver_pending_urgent_alerts(db, event_ids=[event.id for event in created])
 
     return {
         "history": latest_history,

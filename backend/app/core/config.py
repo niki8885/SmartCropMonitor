@@ -89,3 +89,31 @@ SMTP_PORT     = int(os.getenv("SMTP_PORT", 587))
 SMTP_USER     = os.getenv("SMTP_USER")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
 BRIEFING_FROM_EMAIL = os.getenv("BRIEFING_FROM_EMAIL", SMTP_USER)
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+ALERT_EMAIL_ENABLED = _env_bool("ALERT_EMAIL_ENABLED", True)
+ALERT_FROM_EMAIL = os.getenv("ALERT_FROM_EMAIL", BRIEFING_FROM_EMAIL)
+URGENT_ALERT_MIN_PRIORITY = os.getenv("URGENT_ALERT_MIN_PRIORITY", "HIGH").upper()
+URGENT_ALERT_DUPLICATE_SUPPRESSION_HOURS = float(os.getenv("URGENT_ALERT_DUPLICATE_SUPPRESSION_HOURS", 12))
+URGENT_ALERT_RATE_LIMIT_PER_HOUR = int(os.getenv("URGENT_ALERT_RATE_LIMIT_PER_HOUR", 6))
+URGENT_ALERT_RETRY_MAX_ATTEMPTS = int(os.getenv("URGENT_ALERT_RETRY_MAX_ATTEMPTS", 3))
+URGENT_ALERT_RETRY_BACKOFF_MINUTES = float(os.getenv("URGENT_ALERT_RETRY_BACKOFF_MINUTES", 5))
+URGENT_ALERT_LOOKBACK_HOURS = float(os.getenv("URGENT_ALERT_LOOKBACK_HOURS", 48))
+
+ALERT_FROST_TEMP_C = float(os.getenv("ALERT_FROST_TEMP_C", -2))
+ALERT_HEAT_TEMP_C = float(os.getenv("ALERT_HEAT_TEMP_C", 35))
+ALERT_HIGH_WIND_MPS = float(os.getenv("ALERT_HIGH_WIND_MPS", 20))
+ALERT_HEAVY_RAIN_1H_MM = float(os.getenv("ALERT_HEAVY_RAIN_1H_MM", 15))
+ALERT_HEAVY_RAIN_7D_MM = float(os.getenv("ALERT_HEAVY_RAIN_7D_MM", 70))
+ALERT_DROUGHT_SPI = float(os.getenv("ALERT_DROUGHT_SPI", -1.5))
+ALERT_SOIL_MOISTURE_MIN = float(os.getenv("ALERT_SOIL_MOISTURE_MIN", 0.08))
+ALERT_SOIL_MOISTURE_MAX = float(os.getenv("ALERT_SOIL_MOISTURE_MAX", 0.45))
+ALERT_SOIL_TEMP_MIN_C = float(os.getenv("ALERT_SOIL_TEMP_MIN_C", 2))
+ALERT_SOIL_TEMP_MAX_C = float(os.getenv("ALERT_SOIL_TEMP_MAX_C", 35))

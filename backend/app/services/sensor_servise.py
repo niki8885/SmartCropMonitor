@@ -4,6 +4,7 @@ from sqlalchemy import select
 from app.core.database import SensorsDB, WeatherSensors
 from app.events.sensor_alerts import handle_sensor_came_online
 from app.services.custom_alert_engine import build_metric_snapshot, evaluate_custom_alert_rules
+from app.events.urgent_email_alerts import deliver_pending_urgent_alerts
 
 
 def process_and_add_sensor_data(db: Session, payload: dict):
@@ -41,7 +42,7 @@ def process_and_add_sensor_data(db: Session, payload: dict):
         db.add_all(new_records)
         handle_sensor_came_online(db, sensor.id)
         latest_record = max(new_records, key=lambda record: record.timestamp)
-        evaluate_custom_alert_rules(
+        created = evaluate_custom_alert_rules(
             db,
             sensor.user_id,
             build_metric_snapshot(latest_record, extra=latest_record.extra_data),
@@ -50,6 +51,8 @@ def process_and_add_sensor_data(db: Session, payload: dict):
         )
         try:
             db.commit()
+            if created:
+                deliver_pending_urgent_alerts(db, event_ids=[event.id for event in created])
             return len(new_records)
         except Exception as e:
             db.rollback()

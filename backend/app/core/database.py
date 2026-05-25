@@ -5,7 +5,8 @@ import datetime
 
 from sqlalchemy import (
     create_engine, Column, Integer, Float, Enum, Numeric,
-    ForeignKey, String, DateTime, JSON, Boolean, UniqueConstraint, func, Index, Date, Text
+    ForeignKey, String, DateTime, JSON, Boolean, UniqueConstraint, func, Index,
+    inspect, text
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
@@ -46,6 +47,7 @@ class UserDB(Base):
     hashed_password = Column(String, nullable=False)
 
     email        = Column(String, nullable=True, unique=True, index=True)
+    email_enabled = Column(Boolean, nullable=False, default=True)
     first_name   = Column(String(100), nullable=True)
     last_name    = Column(String(100), nullable=True)
     phone        = Column(String(30),  nullable=True)
@@ -699,6 +701,38 @@ class Events(Base):
     extra_metadata = Column(JSONB, nullable=True)
 
 
+class AlertDeliveryLog(Base):
+    __tablename__ = "alert_delivery_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    event_id = Column(Integer, ForeignKey("events.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+
+    channel = Column(String(30), nullable=False, default="email", index=True)
+    recipient = Column(String(255), nullable=False)
+    priority = Column(String(20), nullable=False, index=True)
+    status = Column(String(30), nullable=False, default="PENDING", index=True)
+
+    attempt_count = Column(Integer, nullable=False, default=0)
+    last_error = Column(String(1000), nullable=True)
+    next_retry_at = Column(DateTime, nullable=True, index=True)
+    sent_at = Column(DateTime, nullable=True, index=True)
+
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    extra_metadata = Column(JSONB, nullable=True)
+
+    event = relationship("Events")
+    user = relationship("UserDB")
+
+    __table_args__ = (
+        UniqueConstraint("event_id", "channel", name="uq_alert_delivery_event_channel"),
+        Index("ix_alert_delivery_user_status_retry", "user_id", "status", "next_retry_at"),
+    )
+    
+    
 class EventsRules(Base):
     __tablename__ = "events_rules"
 
@@ -764,3 +798,23 @@ def get_db():
 # Init DB
 # =========================
 Base.metadata.create_all(bind=engine)
+
+
+def _ensure_runtime_columns() -> None:
+    """Small compatibility shim for existing databases without migrations."""
+    inspector = inspect(engine)
+    if "users" not in inspector.get_table_names():
+        return
+
+    user_columns = {column["name"] for column in inspector.get_columns("users")}
+    if "email_enabled" in user_columns:
+        return
+
+    default_value = "1" if engine.dialect.name == "sqlite" else "true"
+    with engine.begin() as connection:
+        connection.execute(
+            text(f"ALTER TABLE users ADD COLUMN email_enabled BOOLEAN NOT NULL DEFAULT {default_value}")
+        )
+
+
+_ensure_runtime_columns()

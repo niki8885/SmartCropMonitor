@@ -19,6 +19,8 @@ from app.monitoring.alerting import format_alert, AlertService
 from app.services.anomaly_processor import find_all_anomaly
 from app.services.spot_anomaly_processor import find_all_satellite_anomaly
 from app.events.alerts_orchestrator import run_all_alert_checks
+from app.events.urgent_email_alerts import deliver_pending_urgent_alerts
+from app.events.system_alerts import create_system_critical_alerts
 from app.services.dem_service import ensure_dem_for_all_locations
 from app.services.disease_service import disease_risk
 from app.core.config import WEBHOOK_URL
@@ -207,10 +209,18 @@ def full_sync_process(db: Session):
         run_biomass_estimation(db)
         find_all_anomaly(db)
         find_all_satellite_anomaly(db)
+        deliver_pending_urgent_alerts(db)
 
     except Exception as e:
         logger.error(f"Critical orchestrator failure: {e}", exc_info=True)
+        db.rollback()
         try:
+            create_system_critical_alerts(
+                db,
+                component="full_sync",
+                message=str(e),
+                metadata={"process": "full_sync_process"},
+            )
             alert_service.send(
                 key="orchestrator_failure",
                 message=format_alert("ORCHESTRATOR_CRITICAL", f"Full sync failed: {str(e)}")
@@ -246,7 +256,14 @@ def short_sync_process(db: Session):
 
     except Exception as e:
         logger.error(f"Critical orchestrator failure: {e}", exc_info=True)
+        db.rollback()
         try:
+            create_system_critical_alerts(
+                db,
+                component="short_sync",
+                message=str(e),
+                metadata={"process": "short_sync_process"},
+            )
             alert_service.send(
                 key="orchestrator_failure",
                 message=format_alert("ORCHESTRATOR_CRITICAL", f"Short sync failed: {str(e)}")
