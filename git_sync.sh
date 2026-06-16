@@ -10,11 +10,7 @@ git add .
 
 if ! git diff-index --quiet HEAD; then
 
-    git commit -m "chore(data): $(date '+%Y-%m-%d %H:%M:%S')"
-
-    git push origin master
-
-    echo "Changes pushed successfully at $(date)"
+    echo "Changes not pushed successfully at $(date)"
 
 else
 
