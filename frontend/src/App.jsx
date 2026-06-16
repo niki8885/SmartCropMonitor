@@ -5,17 +5,23 @@ import Dashboard from './Dashboard';
 import { FontSizeProvider } from './context/FontSizeContext';
 import { LanguageProvider } from './context/LanguageContext';
 function App() {
-  const [userId, setUserId] = useState(localStorage.getItem('userId'));
+  // Auth state is the JWT token. userId is kept only as a convenience value for
+  // the dashboard UI — the backend derives identity from the token, never from it.
+  const [token, setToken] = useState(localStorage.getItem('token'));
 
-  const handleLogin = (id) => {
-    localStorage.setItem('userId', id);
-    setUserId(id);
+  const handleLogin = (data) => {
+    localStorage.setItem('token', data.access_token);
+    if (data.user_id != null) localStorage.setItem('userId', data.user_id);
+    setToken(data.access_token);
   };
 
   const handleLogout = () => {
+    localStorage.removeItem('token');
     localStorage.removeItem('userId');
-    setUserId(null);
+    setToken(null);
   };
+
+  const userId = localStorage.getItem('userId');
 
   return (
       <LanguageProvider>
@@ -25,11 +31,11 @@ function App() {
           <Routes>
             <Route
               path="/login"
-              element={userId ? <Navigate to="/" replace /> : <Auth onLogin={handleLogin} />}
+              element={token ? <Navigate to="/" replace /> : <Auth onLogin={handleLogin} />}
             />
             <Route
               path="/"
-              element={userId ? <Dashboard userId={userId} onLogout={handleLogout} /> : <Navigate to="/login" replace />}
+              element={token ? <Dashboard userId={userId} onLogout={handleLogout} /> : <Navigate to="/login" replace />}
             />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

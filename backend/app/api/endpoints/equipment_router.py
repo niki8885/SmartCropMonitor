@@ -10,7 +10,9 @@ from app.core.database import (
     EquipmentUsageLog,
     FieldWork,
     FieldUnit,
+    UserDB,
 )
+from app.core.security import get_current_user
 from app.core.schemas import (
     EquipmentType, EquipmentStatus, FuelType, MaintenanceType,
 )
@@ -275,14 +277,15 @@ def _build_eq_read(eq: Equipment, db: Session) -> dict:
 # BEFORE the bare /{equipment_id} wildcard so FastAPI matches them correctly.
 # =============================================================================
 
-@router.get("/user/{user_id}", response_model=List[EquipmentRead])
+@router.get("/user", response_model=List[EquipmentRead])
 def list_equipment(
-    user_id: int,
     status: Optional[str] = None,
     equipment_type: Optional[str] = None,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """List all active equipment for a user, with computed usage/maintenance summary."""
+    """List all active equipment for the current user, with computed usage/maintenance summary."""
+    user_id = current_user.id
     q = db.query(Equipment).filter(
         Equipment.user_id == user_id,
         Equipment.deleted_at.is_(None),
@@ -301,9 +304,13 @@ def list_equipment_types():
     return [e.value for e in EquipmentType]
 
 
-@router.get("/summary/user/{user_id}")
-def equipment_summary(user_id: int, db: Session = Depends(get_db)):
+@router.get("/summary/user")
+def equipment_summary(
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Fleet summary: counts by type and status, total hours logged this year."""
+    user_id = current_user.id
     from sqlalchemy import func as sqlfunc, extract
     from collections import defaultdict
 
@@ -350,12 +357,12 @@ def equipment_summary(user_id: int, db: Session = Depends(get_db)):
 
 @router.post("/create", response_model=EquipmentRead, status_code=201)
 def create_equipment(
-    user_id: int,
     data: EquipmentCreate,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     eq = Equipment(
-        user_id=user_id,
+        user_id=current_user.id,
         **data.model_dump(),
     )
     eq.hours_current = data.hours_initial or 0
@@ -368,21 +375,21 @@ def create_equipment(
 @router.get("/{equipment_id}", response_model=EquipmentRead)
 def get_equipment(
     equipment_id: int,
-    user_id: int,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    eq = _eq_or_404(db, equipment_id, user_id)
+    eq = _eq_or_404(db, equipment_id, current_user.id)
     return _build_eq_read(eq, db)
 
 
 @router.patch("/{equipment_id}", response_model=EquipmentRead)
 def update_equipment(
     equipment_id: int,
-    user_id: int,
     data: EquipmentUpdate,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    eq = _eq_or_404(db, equipment_id, user_id)
+    eq = _eq_or_404(db, equipment_id, current_user.id)
     for k, v in data.model_dump(exclude_unset=True).items():
         setattr(eq, k, v)
     db.commit()
@@ -393,10 +400,10 @@ def update_equipment(
 @router.delete("/{equipment_id}", status_code=200)
 def delete_equipment(
     equipment_id: int,
-    user_id: int,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    eq = _eq_or_404(db, equipment_id, user_id)
+    eq = _eq_or_404(db, equipment_id, current_user.id)
     eq.deleted_at = datetime.utcnow()   # soft-delete
     db.commit()
     return {"message": "Equipment deleted", "id": equipment_id}
@@ -409,10 +416,10 @@ def delete_equipment(
 @router.get("/{equipment_id}/maintenance", response_model=List[MaintenanceRead])
 def list_maintenance(
     equipment_id: int,
-    user_id: int,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _eq_or_404(db, equipment_id, user_id)
+    _eq_or_404(db, equipment_id, current_user.id)
     return (
         db.query(EquipmentMaintenance)
         .filter_by(equipment_id=equipment_id)
@@ -424,15 +431,15 @@ def list_maintenance(
 @router.post("/{equipment_id}/maintenance", response_model=MaintenanceRead, status_code=201)
 def add_maintenance(
     equipment_id: int,
-    user_id: int,
     data: MaintenanceCreate,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    eq = _eq_or_404(db, equipment_id, user_id)
+    eq = _eq_or_404(db, equipment_id, current_user.id)
 
     m = EquipmentMaintenance(
         equipment_id=equipment_id,
-        user_id=user_id,
+        user_id=current_user.id,
         **data.model_dump(),
     )
     db.add(m)
@@ -454,11 +461,11 @@ def add_maintenance(
 def update_maintenance(
     equipment_id: int,
     maintenance_id: int,
-    user_id: int,
     data: MaintenanceUpdate,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _eq_or_404(db, equipment_id, user_id)
+    _eq_or_404(db, equipment_id, current_user.id)
     m = db.get(EquipmentMaintenance, maintenance_id)
     if not m or m.equipment_id != equipment_id:
         raise HTTPException(status_code=404, detail="Maintenance record not found")
@@ -473,10 +480,10 @@ def update_maintenance(
 def delete_maintenance(
     equipment_id: int,
     maintenance_id: int,
-    user_id: int,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _eq_or_404(db, equipment_id, user_id)
+    _eq_or_404(db, equipment_id, current_user.id)
     m = db.get(EquipmentMaintenance, maintenance_id)
     if not m or m.equipment_id != equipment_id:
         raise HTTPException(status_code=404, detail="Maintenance record not found")
@@ -487,10 +494,10 @@ def delete_maintenance(
 @router.get("/{equipment_id}/usage", response_model=List[UsageRead])
 def list_usage(
     equipment_id: int,
-    user_id: int,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _eq_or_404(db, equipment_id, user_id)
+    _eq_or_404(db, equipment_id, current_user.id)
     logs = (
         db.query(EquipmentUsageLog)
         .filter_by(equipment_id=equipment_id)
@@ -513,11 +520,11 @@ def list_usage(
 @router.post("/{equipment_id}/usage", response_model=UsageRead, status_code=201)
 def log_usage(
     equipment_id: int,
-    user_id: int,
     data: UsageCreate,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    eq = _eq_or_404(db, equipment_id, user_id)
+    eq = _eq_or_404(db, equipment_id, current_user.id)
 
     hours_worked = data.hours_worked
     if hours_worked is None and data.hours_start is not None and data.hours_end is not None:
@@ -525,7 +532,7 @@ def log_usage(
 
     log = EquipmentUsageLog(
         equipment_id=equipment_id,
-        user_id=user_id,
+        user_id=current_user.id,
         hours_worked=hours_worked,
         **{k: v for k, v in data.model_dump().items() if k != "hours_worked"},
     )
@@ -545,11 +552,11 @@ def log_usage(
 def update_usage(
     equipment_id: int,
     usage_id: int,
-    user_id: int,
     data: UsageUpdate,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _eq_or_404(db, equipment_id, user_id)
+    _eq_or_404(db, equipment_id, current_user.id)
     log = db.get(EquipmentUsageLog, usage_id)
     if not log or log.equipment_id != equipment_id:
         raise HTTPException(status_code=404, detail="Usage record not found")
@@ -567,10 +574,10 @@ def update_usage(
 def delete_usage(
     equipment_id: int,
     usage_id: int,
-    user_id: int,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _eq_or_404(db, equipment_id, user_id)
+    _eq_or_404(db, equipment_id, current_user.id)
     log = db.get(EquipmentUsageLog, usage_id)
     if not log or log.equipment_id != equipment_id:
         raise HTTPException(status_code=404, detail="Usage record not found")

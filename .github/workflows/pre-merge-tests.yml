@@ -63,8 +63,28 @@ jobs:
       - name: Compile source
         run: python -m compileall app
 
-      - name: Run tests
-        run: python -m pytest tests/ -v --tb=short
+      - name: Run tests with coverage
+        run: >-
+          python -m pytest tests/ -v --tb=short
+          --cov=app --cov-branch --cov-report=xml
+          --junitxml=junit.xml -o junit_family=legacy
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: niki8885/SmartCropMonitor
+          files: backend/coverage.xml
+          flags: backend
+
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/test-results-action@v1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: niki8885/SmartCropMonitor
+          files: backend/junit.xml
+          flags: backend
 
   haskell:
     name: Haskell tests

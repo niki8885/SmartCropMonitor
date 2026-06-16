@@ -40,7 +40,7 @@ const Auth = ({ onLogin }) => {
           username: form.username,
           password: form.password,
         });
-        onLogin(res.data.user_id);
+        onLogin(res.data);
       } else {
         const payload = Object.fromEntries(
           Object.entries(form).filter(([, v]) => v !== '' && v !== null)

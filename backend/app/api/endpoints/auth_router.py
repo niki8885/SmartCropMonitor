@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from passlib.context import CryptContext
-from app.core.security import create_access_token
+from app.core.security import create_access_token, get_current_user
 import hashlib
 import bcrypt
 
@@ -120,19 +120,18 @@ async def login(user: UserLogin, db: Session = Depends(get_db)):
     return {"access_token": token, "token_type": "bearer", **_user_profile(db_user)}
 
 
-@router.get("/user/{user_id}", summary="Получить профиль")
-async def get_user(user_id: int, db: Session = Depends(get_db)):
-    user = db.get(UserDB, user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return _user_profile(user)
+@router.get("/me", summary="Получить профиль")
+async def get_me(current_user: UserDB = Depends(get_current_user)):
+    return _user_profile(current_user)
 
 
-@router.patch("/user/{user_id}", summary="Обновить профиль")
-async def update_profile(user_id: int, body: UserUpdateProfile, db: Session = Depends(get_db)):
-    user = db.get(UserDB, user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+@router.patch("/me", summary="Обновить профиль")
+async def update_profile(
+    body: UserUpdateProfile,
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user = current_user
 
     if body.email and body.email != user.email:
         existing = db.query(UserDB).filter(UserDB.email == body.email).first()

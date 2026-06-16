@@ -1,7 +1,7 @@
 import api from './client';
 
-export const getUserProfile = (userId) =>
-  api.get(`/api/v1/auth/user/${userId}`).then(res => res.data);
+export const getUserProfile = () =>
+  api.get(`/api/v1/auth/me`).then(res => res.data);
 
 export const updateUserProfile = (userId, payload) =>
-  api.patch(`/api/v1/auth/user/${userId}`, payload).then(res => res.data);
+  api.patch(`/api/v1/auth/me`, payload).then(res => res.data);

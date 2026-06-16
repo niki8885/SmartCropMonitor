@@ -33,7 +33,7 @@ class SensorCreate(BaseModel):
     label: str
     latitude: float
     longitude: float
-    user_id: int
+    user_id: Optional[int] = None   # ignored — owner comes from the auth token
     meteorological: Optional[bool] = True
 
 class SingleReading(BaseModel):

@@ -6,7 +6,8 @@ from datetime import datetime, date
 from decimal import Decimal
 from collections import defaultdict as _dd
 
-from app.core.database import get_db, FieldWork, FieldUnit, SeasonRecord, FertilizationLog, PesticideLog
+from app.core.database import get_db, FieldWork, FieldUnit, SeasonRecord, FertilizationLog, PesticideLog, UserLocation, UserDB
+from app.core.security import get_current_user
 from app.core.schemas import (
     FieldWorkType, FieldWorkStatus,
     FertilizationMethod, PesticideTargetType,
@@ -15,6 +16,19 @@ from app.core.schemas import (
 from pydantic import BaseModel, ConfigDict, field_validator
 
 router = APIRouter(prefix="/fieldwork", tags=["Field Work"])
+
+
+def _owned_field_or_404(db: Session, field_id: int, user_id: int) -> FieldUnit:
+    """Fetch a field only if it belongs to the authenticated user."""
+    field = (
+        db.query(FieldUnit)
+        .join(UserLocation, FieldUnit.location_id == UserLocation.id)
+        .filter(FieldUnit.id == field_id, UserLocation.user_id == user_id)
+        .first()
+    )
+    if not field:
+        raise HTTPException(status_code=404, detail="Field not found or access denied")
+    return field
 
 
 # =============================================================================
@@ -155,7 +169,7 @@ class FieldWorkRead(BaseModel):
 
 class FieldWorkCreate(BaseModel):
     """Generic operation – no sub-record."""
-    user_id: int
+    user_id: Optional[int] = None   # ignored — owner comes from the auth token
     field_id: int
     work_type: FieldWorkType
     work_status: FieldWorkStatus = FieldWorkStatus.PLANNED
@@ -175,7 +189,7 @@ class SowingCreate(BaseModel):
     eGN 3.3 – Sowing / planting operation.
     Creates a FieldWork (SOWING or PLANTING) + a SeasonRecord.
     """
-    user_id:  int
+    user_id:  Optional[int] = None   # ignored — owner comes from the auth token
     field_id: int
     work_date: datetime
     work_status: FieldWorkStatus = FieldWorkStatus.COMPLETED
@@ -202,7 +216,7 @@ class FertilizationCreate(BaseModel):
     """
     eGN 3.4 – Fertilization event.
     """
-    user_id:  int
+    user_id:  Optional[int] = None   # ignored — owner comes from the auth token
     field_id: int
     work_date: datetime
     work_status: FieldWorkStatus = FieldWorkStatus.COMPLETED
@@ -234,7 +248,7 @@ class SprayingCreate(BaseModel):
     """
     eGN 3.5 – Pesticide / PPP application.
     """
-    user_id:  int
+    user_id:  Optional[int] = None   # ignored — owner comes from the auth token
     field_id: int
     work_date: datetime
     work_status: FieldWorkStatus = FieldWorkStatus.COMPLETED
@@ -312,15 +326,16 @@ class SeasonUpdate(BaseModel):
 # Endpoints – read
 # =============================================================================
 
-@router.get("/user/{user_id}", response_model=List[FieldWorkRead])
+@router.get("/user", response_model=List[FieldWorkRead])
 def get_user_fieldwork(
-    user_id: int,
     limit: int = 100,
     offset: int = 0,
     work_type: Optional[FieldWorkType] = None,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """All field-work records for a user, newest first. Optional filter by work_type."""
+    """All field-work records for the current user, newest first. Optional filter by work_type."""
+    user_id = current_user.id
     q = select(FieldWork).where(FieldWork.user_id == user_id)
     if work_type:
         q = q.where(FieldWork.work_type == work_type)
@@ -333,8 +348,10 @@ def get_field_fieldwork(
     field_id: int,
     limit: int = 50,
     work_type: Optional[FieldWorkType] = None,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    _owned_field_or_404(db, field_id, current_user.id)
     q = select(FieldWork).where(FieldWork.field_id == field_id)
     if work_type:
         q = q.where(FieldWork.work_type == work_type)
@@ -343,21 +360,29 @@ def get_field_fieldwork(
 
 
 @router.get("/{work_id}", response_model=FieldWorkRead)
-def get_fieldwork(work_id: int, db: Session = Depends(get_db)):
+def get_fieldwork(
+    work_id: int,
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     record = db.get(FieldWork, work_id)
-    if not record:
+    if not record or record.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Record not found")
     return FieldWorkRead.from_orm_full(record)
 
 
 @router.post("/create", response_model=FieldWorkRead)
-def create_fieldwork(data: FieldWorkCreate, db: Session = Depends(get_db)):
+def create_fieldwork(
+    data: FieldWorkCreate,
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Generic agronomic operation – no typed sub-record."""
-    field = db.get(FieldUnit, data.field_id)
-    if not field:
-        raise HTTPException(status_code=404, detail="Field not found")
+    _owned_field_or_404(db, data.field_id, current_user.id)
 
-    record = FieldWork(**data.model_dump())
+    payload = data.model_dump()
+    payload["user_id"] = current_user.id
+    record = FieldWork(**payload)
     db.add(record)
     try:
         db.commit()
@@ -369,10 +394,12 @@ def create_fieldwork(data: FieldWorkCreate, db: Session = Depends(get_db)):
 
 
 @router.post("/sowing", response_model=FieldWorkRead, summary="eGN 3.3 – Sowing / planting")
-def create_sowing(data: SowingCreate, db: Session = Depends(get_db)):
-    field = db.get(FieldUnit, data.field_id)
-    if not field:
-        raise HTTPException(status_code=404, detail="Field not found")
+def create_sowing(
+    data: SowingCreate,
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    field = _owned_field_or_404(db, data.field_id, current_user.id)
 
     sowing_date = data.sowing_date or data.work_date.date()
 
@@ -384,7 +411,7 @@ def create_sowing(data: SowingCreate, db: Session = Depends(get_db)):
     if not season:
         season = SeasonRecord(
             field_id=data.field_id,
-            user_id=data.user_id,
+            user_id=current_user.id,
             season_year=data.season_year,
             crop=data.crop,
             variety=data.variety,
@@ -405,7 +432,7 @@ def create_sowing(data: SowingCreate, db: Session = Depends(get_db)):
     ) else FieldWorkType.SOWING
 
     fw = FieldWork(
-        user_id=data.user_id,
+        user_id=current_user.id,
         field_id=data.field_id,
         work_type=wtype,
         work_status=data.work_status,
@@ -431,15 +458,17 @@ def create_sowing(data: SowingCreate, db: Session = Depends(get_db)):
 
 
 @router.post("/fertilization", response_model=FieldWorkRead, summary="eGN 3.4 – Fertilization")
-def create_fertilization(data: FertilizationCreate, db: Session = Depends(get_db)):
-    field = db.get(FieldUnit, data.field_id)
-    if not field:
-        raise HTTPException(status_code=404, detail="Field not found")
+def create_fertilization(
+    data: FertilizationCreate,
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    field = _owned_field_or_404(db, data.field_id, current_user.id)
 
     app_date = data.application_date or data.work_date.date()
 
     fw = FieldWork(
-        user_id=data.user_id,
+        user_id=current_user.id,
         field_id=data.field_id,
         work_type=FieldWorkType.FERTILIZATION,
         work_status=data.work_status,
@@ -456,7 +485,7 @@ def create_fertilization(data: FertilizationCreate, db: Session = Depends(get_db
     log = FertilizationLog(
         field_work_id=fw.id,
         field_id=data.field_id,
-        user_id=data.user_id,
+        user_id=current_user.id,
         season_id=data.season_id,
         application_date=app_date,
         product_name=data.product_name,
@@ -486,15 +515,17 @@ def create_fertilization(data: FertilizationCreate, db: Session = Depends(get_db
 
 
 @router.post("/spraying", response_model=FieldWorkRead, summary="eGN 3.5 – Pesticide / PPP")
-def create_spraying(data: SprayingCreate, db: Session = Depends(get_db)):
-    field = db.get(FieldUnit, data.field_id)
-    if not field:
-        raise HTTPException(status_code=404, detail="Field not found")
+def create_spraying(
+    data: SprayingCreate,
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    field = _owned_field_or_404(db, data.field_id, current_user.id)
 
     app_date = data.application_date or data.work_date.date()
 
     fw = FieldWork(
-        user_id=data.user_id,
+        user_id=current_user.id,
         field_id=data.field_id,
         work_type=FieldWorkType.SPRAYING,
         work_status=data.work_status,
@@ -511,7 +542,7 @@ def create_spraying(data: SprayingCreate, db: Session = Depends(get_db)):
     log = PesticideLog(
         field_work_id=fw.id,
         field_id=data.field_id,
-        user_id=data.user_id,
+        user_id=current_user.id,
         season_id=data.season_id,
         application_date=app_date,
         product_trade_name=data.product_trade_name,
@@ -552,11 +583,12 @@ def create_spraying(data: SprayingCreate, db: Session = Depends(get_db)):
 def record_harvest(
     season_id: int,
     data: HarvestUpdate,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
 
     season = db.get(SeasonRecord, season_id)
-    if not season:
+    if not season or season.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Season record not found")
 
     for field_name, value in data.model_dump(exclude_unset=True).items():
@@ -605,9 +637,14 @@ def record_harvest(
 # =============================================================================
 
 @router.patch("/{work_id}", response_model=FieldWorkRead)
-def update_fieldwork(work_id: int, data: FieldWorkUpdate, db: Session = Depends(get_db)):
+def update_fieldwork(
+    work_id: int,
+    data: FieldWorkUpdate,
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     record = db.get(FieldWork, work_id)
-    if not record:
+    if not record or record.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Record not found")
 
     if data.work_status   is not None: record.work_status   = data.work_status
@@ -624,12 +661,14 @@ def update_fieldwork(work_id: int, data: FieldWorkUpdate, db: Session = Depends(
 
 
 @router.delete("/{work_id}")
-def delete_fieldwork(work_id: int, user_id: int, db: Session = Depends(get_db)):
+def delete_fieldwork(
+    work_id: int,
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     record = db.get(FieldWork, work_id)
-    if not record:
+    if not record or record.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Record not found")
-    if record.user_id != user_id:
-        raise HTTPException(status_code=403, detail="Not your record")
 
     fert_log = db.query(FertilizationLog).filter_by(field_work_id=work_id).first()
     if fert_log:
@@ -653,8 +692,13 @@ def delete_fieldwork(work_id: int, user_id: int, db: Session = Depends(get_db)):
 # =============================================================================
 
 @router.get("/seasons/field/{field_id}", response_model=List[SeasonRecordRead])
-def get_field_seasons(field_id: int, db: Session = Depends(get_db)):
+def get_field_seasons(
+    field_id: int,
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Full crop-rotation history for a field, newest season first."""
+    _owned_field_or_404(db, field_id, current_user.id)
     seasons = (
         db.query(SeasonRecord)
         .filter_by(field_id=field_id)
@@ -665,17 +709,26 @@ def get_field_seasons(field_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/seasons/{season_id}", response_model=SeasonRecordRead)
-def get_season(season_id: int, db: Session = Depends(get_db)):
+def get_season(
+    season_id: int,
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     season = db.get(SeasonRecord, season_id)
-    if not season:
+    if not season or season.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Season not found")
     return SeasonRecordRead.model_validate(season)
 
 
 @router.patch("/seasons/{season_id}", response_model=SeasonRecordRead)
-def update_season(season_id: int, data: SeasonUpdate, db: Session = Depends(get_db)):
+def update_season(
+    season_id: int,
+    data: SeasonUpdate,
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     season = db.get(SeasonRecord, season_id)
-    if not season:
+    if not season or season.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Season not found")
     for k, v in data.model_dump(exclude_unset=True).items():
         setattr(season, k, v)
@@ -691,13 +744,14 @@ def update_season(season_id: int, data: SeasonUpdate, db: Session = Depends(get_
 # Analytics – by work type (unchanged logic)
 # =============================================================================
 
-@router.get("/analytics/work-types/user/{user_id}")
+@router.get("/analytics/work-types/user")
 def get_work_type_analytics(
-    user_id: int,
     year: Optional[int] = None,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Deep statistics broken down by work type."""
+    user_id = current_user.id
     q = db.query(FieldWork).filter(FieldWork.user_id == user_id)
     if year:
         q = q.filter(_extract("year", FieldWork.work_date) == year)
@@ -779,15 +833,14 @@ def get_work_type_analytics(
 # Analytics – by location / farm (unchanged logic)
 # =============================================================================
 
-@router.get("/analytics/locations/user/{user_id}")
+@router.get("/analytics/locations/user")
 def get_location_analytics(
-    user_id: int,
     year: Optional[int] = None,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Farm-level and per-location breakdown of field work."""
-    from app.core.database import UserLocation, UserDB
-
+    user_id = current_user.id
     user         = db.query(UserDB).filter(UserDB.id == user_id).first()
     farm_name    = getattr(user, "farm_name",    None) if user else None
     farm_size_ha = float(getattr(user, "farm_size_ha", 0) or 0) if user else 0

@@ -7,7 +7,8 @@ from geoalchemy2.shape import to_shape
 from geoalchemy2.elements import WKTElement
 import hashlib
 
-from app.core.database import get_db, Events, EventsRules, UserTask
+from app.core.database import get_db, Events, EventsRules, UserTask, UserDB
+from app.core.security import get_current_user
 from app.core.schemas import (
     EventType, StatusType, Status_task, Priority_task
 )
@@ -41,7 +42,7 @@ class EventStatusUpdate(BaseModel):
 
 
 class ManualAlertCreate(BaseModel):
-    user_id: int
+    user_id: Optional[int] = None   # ignored — owner comes from the auth token
     event_type: EventType
     severity: str = "INFO"
     dedup_key: str
@@ -85,7 +86,7 @@ class RuleAction(BaseModel):
 
 
 class RuleCreate(BaseModel):
-    user_id: int
+    user_id: Optional[int] = None   # ignored — owner comes from the auth token
     location_id: Optional[int] = None
     name: str
     event_type: EventType
@@ -143,7 +144,7 @@ class TaskRead(BaseModel):
 
 
 class TaskCreate(BaseModel):
-    user_id: int
+    user_id: Optional[int] = None   # ignored — owner comes from the auth token
     field_id: Optional[int] = None
     event_id: Optional[int] = None
     task_type: str
@@ -161,9 +162,13 @@ class TaskUpdate(BaseModel):
 
 # ── Event
 
-@router.get("/user/{user_id}", response_model=List[EventRead])
-def get_all_alerts(user_id: int, db: Session = Depends(get_db)):
-    """GET /api/v1/events/user/{user_id} — все события, новые первые."""
+@router.get("/user", response_model=List[EventRead])
+def get_all_alerts(
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """GET /api/v1/events/user — все события текущего пользователя, новые первые."""
+    user_id = current_user.id
     return (
         db.execute(
             select(Events)
@@ -174,9 +179,13 @@ def get_all_alerts(user_id: int, db: Session = Depends(get_db)):
     )
 
 
-@router.get("/user/{user_id}/active", response_model=List[EventRead])
-def get_active_alerts(user_id: int, db: Session = Depends(get_db)):
-    """GET /api/v1/events/user/{user_id}/active — только ACTIVE."""
+@router.get("/user/active", response_model=List[EventRead])
+def get_active_alerts(
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """GET /api/v1/events/user/active — только ACTIVE."""
+    user_id = current_user.id
     return (
         db.execute(
             select(Events)
@@ -188,9 +197,13 @@ def get_active_alerts(user_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/manual", response_model=EventRead)
-def create_manual_alert(alert_data: ManualAlertCreate, db: Session = Depends(get_db)):
+def create_manual_alert(
+    alert_data: ManualAlertCreate,
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """POST /api/v1/events/manual"""
-    raw = f"manual|{alert_data.user_id}|{alert_data.dedup_key}"
+    raw = f"manual|{current_user.id}|{alert_data.dedup_key}"
     event_hash = hashlib.sha256(raw.encode()).hexdigest()
 
     existing = db.execute(
@@ -203,7 +216,7 @@ def create_manual_alert(alert_data: ManualAlertCreate, db: Session = Depends(get
         raise HTTPException(status_code=409, detail="Active alert with this dedup_key already exists")
 
     new_event = Events(
-        user_id=alert_data.user_id,
+        user_id=current_user.id,
         event_type=alert_data.event_type,
         event_hash=event_hash,
         dedup_key=alert_data.dedup_key,
@@ -224,9 +237,13 @@ def create_manual_alert(alert_data: ManualAlertCreate, db: Session = Depends(get
 
 # ── Rules
 
-@router.get("/rules/user/{user_id}", response_model=List[RuleRead])
-def get_user_rules(user_id: int, db: Session = Depends(get_db)):
-    """GET /api/v1/events/rules/user/{user_id}"""
+@router.get("/rules/user", response_model=List[RuleRead])
+def get_user_rules(
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """GET /api/v1/events/rules/user"""
+    user_id = current_user.id
     return (
         db.execute(
             select(EventsRules)
@@ -238,13 +255,17 @@ def get_user_rules(user_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/rules/create", response_model=RuleRead)
-def create_rule(rule_data: RuleCreate, db: Session = Depends(get_db)):
+def create_rule(
+    rule_data: RuleCreate,
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """POST /api/v1/events/rules/create"""
     condition = rule_data.condition.model_dump(exclude_none=True)
     if rule_data.location_id:
         condition["location_id"] = rule_data.location_id
     new_rule = EventsRules(
-        user_id=rule_data.user_id,
+        user_id=current_user.id,
         name=rule_data.name,
         is_active=rule_data.is_active,
         event_type=rule_data.event_type,
@@ -262,10 +283,15 @@ def create_rule(rule_data: RuleCreate, db: Session = Depends(get_db)):
 
 
 @router.patch("/rules/{rule_id}", response_model=RuleRead)
-def update_rule(rule_id: int, rule_data: RuleUpdate, db: Session = Depends(get_db)):
+def update_rule(
+    rule_id: int,
+    rule_data: RuleUpdate,
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """PATCH /api/v1/events/rules/{rule_id}"""
     rule = db.get(EventsRules, rule_id)
-    if not rule:
+    if not rule or rule.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Rule not found")
 
     update_data = rule_data.model_dump(exclude_unset=True, exclude_none=True)
@@ -300,10 +326,14 @@ def update_rule(rule_id: int, rule_data: RuleUpdate, db: Session = Depends(get_d
 
 
 @router.patch("/rules/{rule_id}/toggle")
-def toggle_rule(rule_id: int, db: Session = Depends(get_db)):
+def toggle_rule(
+    rule_id: int,
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """PATCH /api/v1/events/rules/{rule_id}/toggle"""
     rule = db.get(EventsRules, rule_id)
-    if not rule:
+    if not rule or rule.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Rule not found")
     rule.is_active = not rule.is_active
     db.commit()
@@ -311,13 +341,15 @@ def toggle_rule(rule_id: int, db: Session = Depends(get_db)):
 
 
 @router.delete("/rules/{rule_id}")
-def delete_rule(rule_id: int, user_id: Optional[int] = None, db: Session = Depends(get_db)):
-    """DELETE /api/v1/events/rules/{rule_id}?user_id=1"""
+def delete_rule(
+    rule_id: int,
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """DELETE /api/v1/events/rules/{rule_id}"""
     rule = db.get(EventsRules, rule_id)
-    if not rule:
+    if not rule or rule.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Rule not found")
-    if user_id is not None and rule.user_id != user_id:
-        raise HTTPException(status_code=403, detail="Not your rule")
     db.delete(rule)
     db.commit()
     return {"message": "Rule deleted", "id": rule_id}
@@ -327,10 +359,11 @@ def delete_rule(rule_id: int, user_id: Optional[int] = None, db: Session = Depen
 
 @router.get("/tasks", response_model=List[TaskRead])
 def get_user_tasks(
-    user_id: int = Query(..., description="User ID"),
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """GET /api/v1/events/tasks?user_id=1"""
+    """GET /api/v1/events/tasks"""
+    user_id = current_user.id
     tasks = (
         db.execute(
             select(UserTask)
@@ -343,7 +376,11 @@ def get_user_tasks(
 
 
 @router.post("/tasks", response_model=TaskRead)
-def create_task(task_data: TaskCreate, db: Session = Depends(get_db)):
+def create_task(
+    task_data: TaskCreate,
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """POST /api/v1/events/tasks"""
     location_geom = None
     if task_data.longitude is not None and task_data.latitude is not None:
@@ -351,7 +388,7 @@ def create_task(task_data: TaskCreate, db: Session = Depends(get_db)):
             f"POINT({task_data.longitude} {task_data.latitude})", srid=4326
         )
     new_task = UserTask(
-        user_id=task_data.user_id,
+        user_id=current_user.id,
         field_id=task_data.field_id,
         event_id=task_data.event_id,
         location=location_geom,
@@ -368,10 +405,15 @@ def create_task(task_data: TaskCreate, db: Session = Depends(get_db)):
 
 
 @router.patch("/tasks/{task_id}")
-def update_task(task_id: int, task_update: TaskUpdate, db: Session = Depends(get_db)):
+def update_task(
+    task_id: int,
+    task_update: TaskUpdate,
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """PATCH /api/v1/events/tasks/{task_id}"""
     task = db.get(UserTask, task_id)
-    if not task:
+    if not task or task.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Task not found")
     if task_update.status is not None:
         task.status = task_update.status
@@ -385,10 +427,14 @@ def update_task(task_id: int, task_update: TaskUpdate, db: Session = Depends(get
 # ── Events
 
 @router.get("/{event_id}", response_model=EventRead)
-def get_alert(event_id: int, db: Session = Depends(get_db)):
+def get_alert(
+    event_id: int,
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """GET /api/v1/events/{event_id}"""
     event = db.get(Events, event_id)
-    if not event:
+    if not event or event.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Alert not found")
     return event
 
@@ -397,11 +443,12 @@ def get_alert(event_id: int, db: Session = Depends(get_db)):
 def update_alert_status(
     event_id: int,
     body: EventStatusUpdate,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """PATCH /api/v1/events/{event_id}/status  body: { "status": "ACKNOWLEDGED" }"""
     event = db.get(Events, event_id)
-    if not event:
+    if not event or event.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Alert not found")
     event.status = body.status
     event.updated_at = datetime.utcnow()

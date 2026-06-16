@@ -117,7 +117,7 @@ const FarmProfilePanel = ({ userId }) => {
 
   useEffect(() => {
     if (!userId) return;
-    api.get(`/api/v1/auth/user/${userId}`)
+    api.get(`/api/v1/auth/me`)
       .then(r => { setProfile(r.data); setForm(r.data); })
       .catch(() => setProfile(null))
       .finally(() => setLoading(false));
@@ -126,7 +126,7 @@ const FarmProfilePanel = ({ userId }) => {
   const save = async () => {
     setBusy(true);
     try {
-      const res = await api.patch(`/api/v1/auth/user/${userId}`, {
+      const res = await api.patch(`/api/v1/auth/me`, {
         email:           form.email        || null,
         first_name:      form.first_name   || null,
         last_name:       form.last_name    || null,
