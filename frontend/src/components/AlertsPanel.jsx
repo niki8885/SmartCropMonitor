@@ -432,7 +432,7 @@ const RulesList = ({ userId, refresh }) => {
   const load = useCallback(() => {
     if (!userId) return;
     setLoading(true);
-    api.get(`${BASE_EVENTS}/rules/user/${userId}`).then(r => setRules(r.data)).catch(() => setRules([])).finally(() => setLoading(false));
+    api.get(`${BASE_EVENTS}/rules/user`).then(r => setRules(r.data)).catch(() => setRules([])).finally(() => setLoading(false));
   }, [userId]);
 
   useEffect(() => { load(); }, [load, refresh]);
@@ -584,7 +584,7 @@ const AlertsPanel = ({ userId, locationId }) => {
   const loadEvents = useCallback(() => {
     if (!userId) return;
     setLoading(true);
-    api.get(`${BASE_EVENTS}/user/${userId}`).then(r => { setEvents(r.data); setLastPoll(new Date()); }).catch(() => setEvents([])).finally(() => setLoading(false));
+    api.get(`${BASE_EVENTS}/user`).then(r => { setEvents(r.data); setLastPoll(new Date()); }).catch(() => setEvents([])).finally(() => setLoading(false));
   }, [userId]);
 
   useEffect(() => { loadEvents(); }, [loadEvents]);
@@ -593,7 +593,7 @@ const AlertsPanel = ({ userId, locationId }) => {
   useEffect(() => {
     if (!userId) return;
     pollRef.current = setInterval(() => {
-      api.get(`${BASE_EVENTS}/user/${userId}`).then(r => { setEvents(r.data); setLastPoll(new Date()); }).catch(() => {});
+      api.get(`${BASE_EVENTS}/user`).then(r => { setEvents(r.data); setLastPoll(new Date()); }).catch(() => {});
     }, POLL_INTERVAL_MS);
     return () => clearInterval(pollRef.current);
   }, [userId]);

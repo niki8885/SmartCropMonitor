@@ -1124,7 +1124,7 @@ const WorkTypeAnalytics = ({ userId }) => {
   const load = useCallback(()=>{
     if(!userId)return;
     setLoading(true);
-    api.get(`${BASE}/analytics/work-types/user/${userId}`,{params:{year}})
+    api.get(`${BASE}/analytics/work-types/user`,{params:{year}})
       .then(r=>{ setData(r.data); setSelected(null); })
       .catch(()=>setData(null))
       .finally(()=>setLoading(false));
@@ -1411,7 +1411,7 @@ const LocationAnalytics = ({ userId }) => {
   const load = useCallback(()=>{
     if(!userId)return;
     setLoading(true);
-    api.get(`${BASE}/analytics/locations/user/${userId}`,{params:{year}})
+    api.get(`${BASE}/analytics/locations/user`,{params:{year}})
       .then(r=>{ setData(r.data); setSelLoc(null); })
       .catch(()=>setData(null))
       .finally(()=>setLoading(false));
@@ -1592,8 +1592,8 @@ const EquipmentAnalytics = ({ userId }) => {
     if (!userId) return;
     setLoading(true);
     Promise.all([
-      api.get(`${BASE_EQ}/user/${userId}`),
-      api.get(`${BASE_EQ}/summary/user/${userId}`),
+      api.get(`${BASE_EQ}/user`),
+      api.get(`${BASE_EQ}/summary/user`),
     ])
       .then(([f, s]) => {
         setFleet(Array.isArray(f.data) ? f.data : []);
@@ -2038,7 +2038,7 @@ const FieldWorkPanel = ({ userId, locationId }) => {
   const loadRecords = useCallback(()=>{
     if(!userId) return;
     setLoading(true);
-    api.get(`${BASE}/user/${userId}`)
+    api.get(`${BASE}/user`)
       .then(r=>{ const d=r.data; setRecords(Array.isArray(d)?d:(d?.items??[])); })
       .catch(()=>setRecords([]))
       .finally(()=>setLoading(false));

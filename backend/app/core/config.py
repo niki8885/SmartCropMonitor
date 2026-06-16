@@ -58,7 +58,7 @@ MAX_SEGM_INPUT = 4
 MIN_SEGM_INPUTS = 3
 
 MIN_RECORDS_7D = 24 * 7 * 0.8
-WEATHER_API_KEY = "62fac38da0cb452e42ea7171b9586e60"
+WEATHER_API_KEY = os.getenv("WEATHER_API_KEY", "")
 
 CLEANUP_RETAIN_LATEST_DATASETS = int(os.getenv("CLEANUP_RETAIN_LATEST_DATASETS", 10))
 CLEANUP_MIN_FILE_AGE_HOURS = float(os.getenv("CLEANUP_MIN_FILE_AGE_HOURS", 1))
@@ -96,6 +96,13 @@ def _env_bool(name: str, default: bool) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+# Deployment environment. In production the interactive API docs (Swagger /docs,
+# ReDoc /redoc) and the OpenAPI schema (/openapi.json) are hidden so the API
+# surface and database schema are not publicly exposed. Override with ENABLE_DOCS.
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development").strip().lower()
+ENABLE_DOCS = _env_bool("ENABLE_DOCS", ENVIRONMENT != "production")
 
 
 ALERT_EMAIL_ENABLED = _env_bool("ALERT_EMAIL_ENABLED", True)

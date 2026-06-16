@@ -5,7 +5,8 @@ from pydantic import BaseModel
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
-from app.core.database import UserLocation, FieldAnalysis, get_db, WeatherHistory, WeatherMetrics
+from app.core.database import UserLocation, FieldAnalysis, get_db, WeatherHistory, WeatherMetrics, UserDB
+from app.core.security import get_current_user
 from app.services.weather_service import current_weather_request
 from app.services.spraying_service import calculate_spraying_window
 from app.services.custom_alert_engine import build_metric_snapshot, evaluate_custom_alert_rules
@@ -25,7 +26,11 @@ def _utc_iso(dt: datetime | None) -> str | None:
     return dt.isoformat().replace("+00:00", "Z")
 
 @router.get("/user/weather-history", tags=["Weather"])
-async def get_weather_history(user_id: int, db: Session = Depends(get_db)):
+async def get_weather_history(
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user_id = current_user.id
     history = (
         db.query(WeatherHistory)
         .join(UserLocation)
@@ -39,9 +44,10 @@ async def get_weather_history(user_id: int, db: Session = Depends(get_db)):
 @router.get("/user/weather-current", tags=["Weather"])
 async def get_current_weather(
         location_id: int,
-        user_id: int,
+        current_user: UserDB = Depends(get_current_user),
         db: Session = Depends(get_db)
 ):
+    user_id = current_user.id
     location = db.query(UserLocation).filter(
         UserLocation.id == location_id,
         UserLocation.user_id == user_id
@@ -78,9 +84,10 @@ async def get_current_weather(
 @router.get("/location/{location_id}/latest-weather", tags=["Weather"])
 async def get_latest_location_weather(
     location_id: int,
-    user_id: int,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    user_id = current_user.id
     location = db.query(UserLocation).filter(
         UserLocation.id == location_id,
         UserLocation.user_id == user_id
@@ -131,9 +138,10 @@ async def get_latest_location_weather(
 @router.get("/location/{location_id}/weather-charts", tags=["Weather"])
 async def get_weather_chart_data(
     location_id: int,
-    user_id: int,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    user_id = current_user.id
     location = db.query(UserLocation).filter(
         UserLocation.id == location_id,
         UserLocation.user_id == user_id
@@ -218,10 +226,11 @@ PERIOD_HOURS = {
 @router.get("/location/{location_id}/weather-stats", tags=["Weather"])
 async def get_weather_stats(
     location_id: int,
-    user_id: int,
     period: str = Query("all", description="all | day | night | 7d | 30d"),
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    user_id = current_user.id
     location = db.query(UserLocation).filter(
         UserLocation.id == location_id,
         UserLocation.user_id == user_id
@@ -282,10 +291,12 @@ async def get_weather_stats(
 @router.get("/{location_id}/spraying-windows", tags=["Spaying"])
 def get_location_spraying_windows(
     location_id: int,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db)
 ) -> Any:
     location = db.query(UserLocation).filter(
-        UserLocation.id == location_id
+        UserLocation.id == location_id,
+        UserLocation.user_id == current_user.id
     ).first()
 
     if not location:

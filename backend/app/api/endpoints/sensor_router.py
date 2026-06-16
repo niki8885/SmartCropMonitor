@@ -3,7 +3,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select, func, desc
 from datetime import datetime, timedelta
 from pydantic import BaseModel
-from app.core.database import get_db, SensorsDB, WeatherSensors
+from app.core.database import get_db, SensorsDB, WeatherSensors, UserDB
+from app.core.security import get_current_user
 from app.services.sensor_servise import process_and_add_sensor_data
 from app.core.schemas import SensorCreate, SensorDataBatch, SensorUpdate
 from geoalchemy2.elements import WKTElement
@@ -12,8 +13,20 @@ import secrets
 router = APIRouter()
 
 
+def _owned_sensor_or_404(db: Session, sensor_id: int, user_id: int) -> SensorsDB:
+    """Fetch a sensor only if it belongs to the authenticated user."""
+    sensor = db.get(SensorsDB, sensor_id)
+    if not sensor or sensor.user_id != user_id:
+        raise HTTPException(status_code=404, detail="Sensor not found")
+    return sensor
+
+
 @router.post("/add_sensor", tags=["sensor_management"])
-async def add_sensor(payload: SensorCreate, db: Session = Depends(get_db)):
+async def add_sensor(
+    payload: SensorCreate,
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     unique_key = secrets.token_urlsafe(24)
 
     point = f'POINT({payload.longitude} {payload.latitude})'
@@ -22,7 +35,7 @@ async def add_sensor(payload: SensorCreate, db: Session = Depends(get_db)):
         hashed_key=unique_key,
         label=payload.label,
         location=WKTElement(point, srid=4326),
-        user_id=payload.user_id,
+        user_id=current_user.id,
         meteorological=payload.meteorological,
         activation_status=True
     )
@@ -53,8 +66,12 @@ async def add_sensor_data(payload: SensorDataBatch, db: Session = Depends(get_db
         raise HTTPException(status_code=500, detail="Internal server error during processing")
 
 
-@router.get("/user_sensors/{user_id}", tags=["sensor_management"])
-async def get_user_sensors(user_id: int, db: Session = Depends(get_db)):
+@router.get("/user_sensors", tags=["sensor_management"])
+async def get_user_sensors(
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user_id = current_user.id
     query = select(SensorsDB).where(SensorsDB.user_id == user_id)
     result = db.execute(query).scalars().all()
 
@@ -71,10 +88,12 @@ async def get_user_sensors(user_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/sensor_status/{sensor_id}", tags=["sensor_management"])
-async def get_sensor_status(sensor_id: int, db: Session = Depends(get_db)):
-    sensor = db.get(SensorsDB, sensor_id)
-    if not sensor:
-        raise HTTPException(status_code=404, detail="Sensor not found")
+async def get_sensor_status(
+    sensor_id: int,
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    sensor = _owned_sensor_or_404(db, sensor_id, current_user.id)
 
     last_data_query = (
         select(func.max(WeatherSensors.timestamp))
@@ -91,8 +110,12 @@ async def get_sensor_status(sensor_id: int, db: Session = Depends(get_db)):
     }
 
 
-@router.get("/user_sensors_latest/{user_id}", tags=["sensor_data"])
-async def get_all_sensors_latest_data(user_id: int, db: Session = Depends(get_db)):
+@router.get("/user_sensors_latest", tags=["sensor_data"])
+async def get_all_sensors_latest_data(
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user_id = current_user.id
     sensors = db.execute(
         select(SensorsDB).where(SensorsDB.user_id == user_id)
     ).scalars().all()
@@ -125,11 +148,10 @@ async def get_all_sensors_latest_data(user_id: int, db: Session = Depends(get_db
 async def get_sensor_history(
     sensor_id: int,
     days: int = Query(default=7, ge=1, le=30),
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    sensor_exists = db.execute(select(SensorsDB).where(SensorsDB.id == sensor_id)).scalar()
-    if not sensor_exists:
-        raise HTTPException(status_code=404, detail="Sensor not found")
+    _owned_sensor_or_404(db, sensor_id, current_user.id)
 
     start_date = datetime.utcnow() - timedelta(days=days)
 
@@ -155,11 +177,10 @@ async def get_sensor_history(
 async def update_sensor(
         sensor_id: int,
         payload: SensorUpdate,
+        current_user: UserDB = Depends(get_current_user),
         db: Session = Depends(get_db)
 ):
-    sensor = db.get(SensorsDB, sensor_id)
-    if not sensor:
-        raise HTTPException(status_code=404, detail="Sensor not found")
+    sensor = _owned_sensor_or_404(db, sensor_id, current_user.id)
 
     update_data = payload.dict(exclude_unset=True)
 

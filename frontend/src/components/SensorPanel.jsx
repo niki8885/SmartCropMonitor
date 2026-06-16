@@ -366,12 +366,12 @@ const SensorPanel = ({ userId }) => {
   const loadSensors = useCallback(() => {
     if (!userId) return;
     setLoading(true);
-    api.get(`${BASE}/user_sensors/${userId}`).then(r => setSensors(r.data)).catch(() => setSensors([])).finally(() => setLoading(false));
+    api.get(`${BASE}/user_sensors`).then(r => setSensors(r.data)).catch(() => setSensors([])).finally(() => setLoading(false));
   }, [userId]);
 
   const loadLatest = useCallback(() => {
     if (!userId) return;
-    api.get(`${BASE}/user_sensors_latest/${userId}`).then(r => { const map = {}; r.data.forEach(s => { map[s.sensor_id] = s; }); setLatestMap(map); }).catch(() => {});
+    api.get(`${BASE}/user_sensors_latest`).then(r => { const map = {}; r.data.forEach(s => { map[s.sensor_id] = s; }); setLatestMap(map); }).catch(() => {});
   }, [userId]);
 
   useEffect(() => { loadSensors(); loadLatest(); }, [loadSensors, loadLatest]);

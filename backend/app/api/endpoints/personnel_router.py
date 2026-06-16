@@ -14,7 +14,9 @@ from app.core.database import (
     FieldWork,
     FieldUnit,
     EquipmentUsageLog,
+    UserDB,
 )
+from app.core.security import get_current_user
 from app.core.schemas import (
     PersonnelRole, EmploymentType, PersonnelStatus,
     CertificationType, PayRateUnit,
@@ -285,14 +287,15 @@ def _build_log_read(log: PersonnelWorkLog, db: Session) -> dict:
 # /{id}/certifications, /{id}/work-log) BEFORE bare /{personnel_id} wildcard.
 # =============================================================================
 
-@router.get("/user/{user_id}", response_model=List[PersonnelRead])
+@router.get("/user", response_model=List[PersonnelRead])
 def list_personnel(
-    user_id: int,
     role:    Optional[str] = None,
     status:  Optional[str] = None,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """List all staff for a farm with certification and YTD labour summary."""
+    """List all staff for the current user's farm with certification and YTD labour summary."""
+    user_id = current_user.id
     q = db.query(Personnel).filter(
         Personnel.user_id == user_id,
         Personnel.deleted_at.is_(None),
@@ -311,9 +314,13 @@ def list_roles():
     return [r.value for r in PersonnelRole]
 
 
-@router.get("/summary/user/{user_id}")
-def personnel_summary(user_id: int, db: Session = Depends(get_db)):
+@router.get("/summary/user")
+def personnel_summary(
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Headcount by role/status, overdue certs count, YTD hours and cost."""
+    user_id = current_user.id
     from collections import defaultdict
 
     staff = db.query(Personnel).filter(
@@ -377,14 +384,15 @@ def personnel_summary(user_id: int, db: Session = Depends(get_db)):
     }
 
 
-@router.get("/expiring-certs/user/{user_id}")
+@router.get("/expiring-certs/user")
 def expiring_certifications(
-    user_id: int,
     days: int = 60,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Return all certifications expiring within `days` days (default 60),
     plus already-expired ones.  Used for compliance dashboard / alerts."""
+    user_id = current_user.id
     today = date.today()
     deadline = date.fromordinal(today.toordinal() + days)
 
@@ -417,13 +425,14 @@ def expiring_certifications(
     return result
 
 
-@router.get("/work-log/user/{user_id}", response_model=List[WorkLogRead])
+@router.get("/work-log/user", response_model=List[WorkLogRead])
 def list_all_work_logs(
-    user_id: int,
     year:    Optional[int] = None,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """All work logs across all staff for a farm (optionally filtered by year)."""
+    """All work logs across all staff for the current user's farm (optionally filtered by year)."""
+    user_id = current_user.id
     q = (
         db.query(PersonnelWorkLog)
         .join(Personnel, PersonnelWorkLog.personnel_id == Personnel.id)
@@ -440,11 +449,11 @@ def list_all_work_logs(
 
 @router.post("/create", response_model=PersonnelRead, status_code=201)
 def create_personnel(
-    user_id: int,
     data: PersonnelCreate,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    p = Personnel(user_id=user_id, **data.model_dump())
+    p = Personnel(user_id=current_user.id, **data.model_dump())
     db.add(p)
     db.commit()
     db.refresh(p)
@@ -456,21 +465,21 @@ def create_personnel(
 @router.get("/{personnel_id}", response_model=PersonnelRead)
 def get_personnel(
     personnel_id: int,
-    user_id: int,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    p = _person_or_404(db, personnel_id, user_id)
+    p = _person_or_404(db, personnel_id, current_user.id)
     return _build_person_read(p, db)
 
 
 @router.patch("/{personnel_id}", response_model=PersonnelRead)
 def update_personnel(
     personnel_id: int,
-    user_id: int,
     data: PersonnelUpdate,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    p = _person_or_404(db, personnel_id, user_id)
+    p = _person_or_404(db, personnel_id, current_user.id)
     for k, v in data.model_dump(exclude_unset=True).items():
         setattr(p, k, v)
     db.commit()
@@ -481,10 +490,10 @@ def update_personnel(
 @router.delete("/{personnel_id}", status_code=200)
 def delete_personnel(
     personnel_id: int,
-    user_id: int,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    p = _person_or_404(db, personnel_id, user_id)
+    p = _person_or_404(db, personnel_id, current_user.id)
     p.deleted_at = datetime.utcnow()
     db.commit()
     return {"message": "Personnel record deleted", "id": personnel_id}
@@ -497,10 +506,10 @@ def delete_personnel(
 @router.get("/{personnel_id}/certifications", response_model=List[CertRead])
 def list_certifications(
     personnel_id: int,
-    user_id: int,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _person_or_404(db, personnel_id, user_id)
+    _person_or_404(db, personnel_id, current_user.id)
     certs = (
         db.query(PersonnelCertification)
         .filter_by(personnel_id=personnel_id)
@@ -514,14 +523,14 @@ def list_certifications(
              response_model=CertRead, status_code=201)
 def add_certification(
     personnel_id: int,
-    user_id: int,
     data: CertCreate,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _person_or_404(db, personnel_id, user_id)
+    _person_or_404(db, personnel_id, current_user.id)
     c = PersonnelCertification(
         personnel_id=personnel_id,
-        user_id=user_id,
+        user_id=current_user.id,
         **data.model_dump(),
     )
     db.add(c)
@@ -535,11 +544,11 @@ def add_certification(
 def update_certification(
     personnel_id: int,
     cert_id: int,
-    user_id: int,
     data: CertUpdate,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _person_or_404(db, personnel_id, user_id)
+    _person_or_404(db, personnel_id, current_user.id)
     c = db.get(PersonnelCertification, cert_id)
     if not c or c.personnel_id != personnel_id:
         raise HTTPException(status_code=404, detail="Certification not found")
@@ -554,10 +563,10 @@ def update_certification(
 def delete_certification(
     personnel_id: int,
     cert_id: int,
-    user_id: int,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _person_or_404(db, personnel_id, user_id)
+    _person_or_404(db, personnel_id, current_user.id)
     c = db.get(PersonnelCertification, cert_id)
     if not c or c.personnel_id != personnel_id:
         raise HTTPException(status_code=404, detail="Certification not found")
@@ -573,11 +582,11 @@ def delete_certification(
 @router.get("/{personnel_id}/work-log", response_model=List[WorkLogRead])
 def list_work_log(
     personnel_id: int,
-    user_id: int,
     year: Optional[int] = None,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _person_or_404(db, personnel_id, user_id)
+    _person_or_404(db, personnel_id, current_user.id)
     q = (
         db.query(PersonnelWorkLog)
         .filter_by(personnel_id=personnel_id)
@@ -592,11 +601,11 @@ def list_work_log(
              response_model=WorkLogRead, status_code=201)
 def add_work_log(
     personnel_id: int,
-    user_id: int,
     data: WorkLogCreate,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _person_or_404(db, personnel_id, user_id)
+    _person_or_404(db, personnel_id, current_user.id)
 
     # Auto-compute hours from start/end time if hours_worked not given
     hours = data.hours_worked
@@ -618,7 +627,7 @@ def add_work_log(
 
     log = PersonnelWorkLog(
         personnel_id=personnel_id,
-        user_id=user_id,
+        user_id=current_user.id,
         hours_worked=hours,
         labour_cost=labour_cost,
         **{k: v for k, v in data.model_dump().items()
@@ -635,11 +644,11 @@ def add_work_log(
 def update_work_log(
     personnel_id: int,
     log_id: int,
-    user_id: int,
     data: WorkLogUpdate,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _person_or_404(db, personnel_id, user_id)
+    _person_or_404(db, personnel_id, current_user.id)
     log = db.get(PersonnelWorkLog, log_id)
     if not log or log.personnel_id != personnel_id:
         raise HTTPException(status_code=404, detail="Work log entry not found")
@@ -665,10 +674,10 @@ def update_work_log(
 def delete_work_log(
     personnel_id: int,
     log_id: int,
-    user_id: int,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _person_or_404(db, personnel_id, user_id)
+    _person_or_404(db, personnel_id, current_user.id)
     log = db.get(PersonnelWorkLog, log_id)
     if not log or log.personnel_id != personnel_id:
         raise HTTPException(status_code=404, detail="Work log entry not found")

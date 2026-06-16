@@ -6,7 +6,8 @@ from fastapi import Depends, APIRouter, HTTPException
 
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
-from app.core.database import UserLocation, FieldAnalysis, get_db, FieldUnit
+from app.core.database import UserLocation, FieldAnalysis, get_db, FieldUnit, UserDB
+from app.core.security import get_current_user
 import json
 from app.core.config import STORAGE_PATH, NDVI_DIR, TOPO_DIR
 
@@ -14,7 +15,11 @@ router = APIRouter()
 
 
 @router.get("/user/locations")
-async def get_user_locations(user_id: int, db: Session = Depends(get_db)):
+async def get_user_locations(
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user_id = current_user.id
     from geoalchemy2.shape import to_shape
     locations = (
         db.query(UserLocation)
@@ -39,10 +44,11 @@ async def get_user_locations(user_id: int, db: Session = Depends(get_db)):
 def get_latest_plotly_data(
     location_id: int,
     metric: str,
-    user_id: int,
     step: int = 3,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    user_id = current_user.id
     analysis = (
         db.query(FieldAnalysis)
         .join(UserLocation, FieldAnalysis.location_id == UserLocation.id)
@@ -106,8 +112,8 @@ def get_latest_plotly_data(
 @router.get("/location/{location_id}/dem-contours")
 def get_dem_contours(
     location_id: int,
-    user_id: int,
     interval: int = 10,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -119,6 +125,7 @@ def get_dem_contours(
     Query params:
         interval  — contour interval in metres (default 10, min 5, max 100)
     """
+    user_id = current_user.id
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -204,7 +211,11 @@ def get_dem_contours(
 
 
 @router.get("/user/fields")
-def get_user_fields(user_id: int, db: Session = Depends(get_db)):
+def get_user_fields(
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user_id = current_user.id
     fields = (
         db.query(
             FieldUnit.id,
@@ -243,10 +254,11 @@ def get_user_fields(user_id: int, db: Session = Depends(get_db)):
 
 @router.get("/user/fields-list")
 def get_user_fields_list(
-    user_id: int,
     location_id: int = None,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    user_id = current_user.id
     query = (
         db.query(FieldUnit)
         .join(UserLocation, FieldUnit.location_id == UserLocation.id)
@@ -293,10 +305,11 @@ class _FieldUpdate(_BaseModel):
 
 @router.get("/fields/user_fields")
 def get_fields_user_fields(
-    user_id: int,
     location_id: int = None,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    user_id = current_user.id
     query = (
         db.query(FieldUnit)
         .join(UserLocation, FieldUnit.location_id == UserLocation.id)
@@ -332,9 +345,10 @@ def get_fields_user_fields(
 def patch_field(
     field_id: int,
     payload: _FieldUpdate,
-    user_id: int,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    user_id = current_user.id
     from sqlalchemy import and_
     field = (
         db.query(FieldUnit)
@@ -368,8 +382,8 @@ def patch_field(
 @router.get("/fields/{field_id}/anomalies")
 def get_field_anomalies(
     field_id: int,
-    user_id: int,
     limit: int = 10,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -405,6 +419,7 @@ def get_field_anomalies(
       ...
     ]
     """
+    user_id = current_user.id
     from app.core.database import FieldStatAnomalyAnalysis, FieldUnit
     from sqlalchemy import and_
 
@@ -462,7 +477,7 @@ from typing import Optional as _Opt
 
 
 class _FPCreate(_FPBase):
-    user_id:          int
+    user_id:          _Opt[int]  = None   # ignored — identity comes from the token
     event_id:         _Opt[int]  = None
     anomaly_id:       _Opt[int]  = None
     event_type:       _Opt[str]  = None
@@ -473,6 +488,7 @@ class _FPCreate(_FPBase):
 @router.post("/false-positives", tags=["FalsePositives"], status_code=201)
 def create_false_positive(
     payload: _FPCreate,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -495,7 +511,7 @@ def create_false_positive(
         )
 
     record = FalsePositiveFeedback(
-        user_id          = payload.user_id,
+        user_id          = current_user.id,
         event_id         = payload.event_id,
         anomaly_id       = payload.anomaly_id,
         event_type       = payload.event_type,
@@ -531,12 +547,13 @@ def create_false_positive(
 
 @router.get("/false-positives", tags=["FalsePositives"])
 def list_false_positives(
-    user_id:    int,
     event_type: _Opt[str] = None,
     limit:      int = 50,
     offset:     int = 0,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    user_id = current_user.id
     """
     GET /api/v1/false-positives?user_id=1&event_type=METRIC_ANOMALY&limit=50
 
@@ -594,9 +611,10 @@ def list_false_positives(
 @router.delete("/false-positives/{fp_id}", tags=["FalsePositives"], status_code=204)
 def delete_false_positive(
     fp_id:   int,
-    user_id: int,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    user_id = current_user.id
     """
     DELETE /api/v1/false-positives/{fp_id}?user_id=1
     """
