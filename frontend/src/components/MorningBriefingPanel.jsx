@@ -86,7 +86,7 @@ const MorningBriefingPanel = ({ userId }) => {
   const load = useCallback(() => {
     if (!userId) return;
     setLoading(true);
-    api.get(`/api/v1/events/user/${userId}`)
+    api.get(`/api/v1/events/user`)
       .then(r => setEvents(r.data || []))
       .catch(() => setEvents([]))
       .finally(() => setLoading(false));
@@ -98,7 +98,7 @@ const MorningBriefingPanel = ({ userId }) => {
   useEffect(() => {
     if (!userId) return;
     pollRef.current = setInterval(() => {
-      api.get(`/api/v1/events/user/${userId}`).then(r => setEvents(r.data || [])).catch(() => {});
+      api.get(`/api/v1/events/user`).then(r => setEvents(r.data || [])).catch(() => {});
     }, POLL_INTERVAL_MS);
     return () => clearInterval(pollRef.current);
   }, [userId]);

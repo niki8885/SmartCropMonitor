@@ -6,7 +6,8 @@ from sqlalchemy import func
 from pydantic import BaseModel, Field
 from decimal import Decimal
 from typing import List, Optional
-from app.core.database import UserLocation, FieldAnalysis, get_db, FieldUnit, Biomass
+from app.core.database import UserLocation, FieldAnalysis, get_db, FieldUnit, Biomass, UserDB
+from app.core.security import get_current_user
 from app.core.schemas import FieldType
 from app.services.segmentation import (
     perform_temp_segmentation_and_save,
@@ -30,6 +31,32 @@ import datetime as _dt
 
 router = APIRouter()
 
+
+def _owned_location_or_404(db: Session, location_id: int, user_id: int) -> UserLocation:
+    """Fetch a location only if it belongs to the authenticated user."""
+    loc = (
+        db.query(UserLocation)
+        .filter(UserLocation.id == location_id, UserLocation.user_id == user_id)
+        .first()
+    )
+    if not loc:
+        raise HTTPException(status_code=404, detail="Location not found or access denied")
+    return loc
+
+
+def _owned_field_or_404(db: Session, field_id: int, user_id: int) -> FieldUnit:
+    """Fetch a field only if it belongs to the authenticated user."""
+    field = (
+        db.query(FieldUnit)
+        .join(UserLocation, FieldUnit.location_id == UserLocation.id)
+        .filter(FieldUnit.id == field_id, UserLocation.user_id == user_id)
+        .first()
+    )
+    if not field:
+        raise HTTPException(status_code=404, detail="Field not found or access denied")
+    return field
+
+
 class LocationCreate(BaseModel):
     label: str
     lat: float
@@ -43,9 +70,10 @@ class SegmentationConfirmPayload(BaseModel):
 @router.post("/locations")
 async def add_location(
     loc: LocationCreate,
-    user_id: int,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    user_id = current_user.id
     point = f"POINT({loc.lon} {loc.lat})"
 
     new_loc = UserLocation(
@@ -64,7 +92,12 @@ async def add_location(
     }
 
 @router.post("/segment-preview/{location_id}", tags=["Segmentation"])
-async def segment_preview(location_id: int, db: Session = Depends(get_db)):
+async def segment_preview(
+    location_id: int,
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _owned_location_or_404(db, location_id, current_user.id)
     try:
         result = run_segmentation_preview(location_id, db)
         return {
@@ -84,8 +117,10 @@ async def segment_preview(location_id: int, db: Session = Depends(get_db)):
 async def segment_confirm(
     location_id: int,
     payload: SegmentationConfirmPayload,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    _owned_location_or_404(db, location_id, current_user.id)
     try:
         result = confirm_segmentation_fields(
             location_id=location_id,
@@ -106,7 +141,12 @@ async def segment_confirm(
 
 
 @router.post("/segment-fields/{location_id}", tags=["Segmentation"])
-async def segment_fields(location_id: int, db: Session = Depends(get_db)):
+async def segment_fields(
+    location_id: int,
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _owned_location_or_404(db, location_id, current_user.id)
     try:
         perform_temp_segmentation_and_save(location_id, db)
         return {"status": "success", "message": f"Segmentation completed for location {location_id}"}
@@ -118,7 +158,11 @@ async def segment_fields(location_id: int, db: Session = Depends(get_db)):
 # History Endpoint
 # =========================
 @router.get("/user/files", tags=["History"])
-async def get_user_files(user_id: int, db: Session = Depends(get_db)):
+async def get_user_files(
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user_id = current_user.id
     history = (
         db.query(FieldAnalysis)
         .join(UserLocation)
@@ -143,8 +187,10 @@ async def get_user_files(user_id: int, db: Session = Depends(get_db)):
 async def generate_location_grid(
         location_id: int,
         use_sr: bool = False,
+        current_user: UserDB = Depends(get_current_user),
         db: Session = Depends(get_db)
 ):
+    _owned_location_or_404(db, location_id, current_user.id)
     try:
         grid_path = process_and_align_nc(db, location_id, use_sr=use_sr)
 
@@ -184,19 +230,21 @@ class ManualFieldCreate(BaseModel):
 @router.post("/manual-add-field", tags=["Fields"])
 async def manual_add_field(
     payload: ManualFieldCreate,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
 
     location = (
         db.query(UserLocation)
-        .filter(UserLocation.id == payload.location_id)
+        .filter(UserLocation.id == payload.location_id,
+                UserLocation.user_id == current_user.id)
         .first()
     )
 
     if not location:
         raise HTTPException(
             status_code=404,
-            detail="Location not found"
+            detail="Location not found or access denied"
         )
 
     try:
@@ -302,12 +350,11 @@ async def manual_add_field(
 @router.get("/locations/{location_id}/biomass", tags=["Biomass"])
 async def get_biomass_for_location(
     location_id: int,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
 
-    location = db.query(UserLocation).filter(UserLocation.id == location_id).first()
-    if not location:
-        raise HTTPException(status_code=404, detail="Location not found")
+    location = _owned_location_or_404(db, location_id, current_user.id)
 
     fields = (
         db.query(FieldUnit)
@@ -371,11 +418,10 @@ async def get_biomass_for_location(
 async def get_biomass_history_for_field(
     field_id: int,
     limit: int = 20,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    field = db.query(FieldUnit).filter(FieldUnit.id == field_id).first()
-    if not field:
-        raise HTTPException(status_code=404, detail="Field not found")
+    field = _owned_field_or_404(db, field_id, current_user.id)
 
     records = (
         db.query(Biomass)
@@ -464,10 +510,12 @@ def _rotation_recommendation(stage_code: str, area_ha: float, aum_capacity: floa
 
 
 @router.get("/locations/{location_id}/pasture", tags=["Pasture"])
-def get_pasture_overview(location_id: int, db: Session = Depends(get_db)):
-    location = db.query(UserLocation).filter(UserLocation.id == location_id).first()
-    if not location:
-        raise HTTPException(status_code=404, detail="Location not found")
+def get_pasture_overview(
+    location_id: int,
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    location = _owned_location_or_404(db, location_id, current_user.id)
 
     pasture_fields = (
         db.query(FieldUnit)
@@ -565,15 +613,14 @@ def get_pasture_overview(location_id: int, db: Session = Depends(get_db)):
 def get_pasture_field_history(
     field_id: int,
     limit: int = 30,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
     Returns biomass history for a single pasture field enriched with
     growth stage and grazing capacity per reading.
     """
-    field = db.query(FieldUnit).filter(FieldUnit.id == field_id).first()
-    if not field:
-        raise HTTPException(status_code=404, detail="Field not found")
+    field = _owned_field_or_404(db, field_id, current_user.id)
     if str(field.field_type).replace("FieldType.", "") != "pasture":
         raise HTTPException(status_code=400, detail="Field is not of type 'pasture'")
 
@@ -618,12 +665,13 @@ def get_pasture_field_history(
 
 @router.get("/user_fields", tags=["Fields"])
 def get_user_fields_list(
-    user_id: int,
     location_id: Optional[int] = None,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """GET /api/v1/fields/user_fields?user_id=1&location_id=2
+    """GET /api/v1/fields/user_fields?location_id=2
     Returns full field info list (not GeoJSON) for the management panel."""
+    user_id = current_user.id
     query = (
         db.query(FieldUnit)
         .join(UserLocation, FieldUnit.location_id == UserLocation.id)
@@ -665,10 +713,11 @@ class FieldUpdate(BaseModel):
 def update_field(
     field_id: int,
     payload: FieldUpdate,
-    user_id: int,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """PATCH /api/v1/fields/{field_id}?user_id=1"""
+    """PATCH /api/v1/fields/{field_id}"""
+    user_id = current_user.id
     field = (
         db.query(FieldUnit)
         .join(UserLocation, FieldUnit.location_id == UserLocation.id)

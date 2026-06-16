@@ -14,9 +14,11 @@ from app.core.database import (
     GrazingRotation,
     GrazingRotationEntry,
     UserLocation,
+    UserDB,
     get_db,
 )
 from app.core.schemas import RotationStatus
+from app.core.security import get_current_user
 
 # ── Helper functions copied from field_router ────────────────────────────────
 # (avoids circular imports — keep them local or move to a shared service module)
@@ -101,7 +103,7 @@ class RotationRead(BaseModel):
 
 
 class RotationPlanRequest(BaseModel):
-    user_id:          int
+    user_id:          Optional[int] = None   # ignored — owner comes from the auth token
     location_id:      int
     name:             str
     plan_start:       datetime.datetime
@@ -210,6 +212,7 @@ def _serialize_rotation(rotation: GrazingRotation, db: Session) -> dict:
 @router.post("/plan", response_model=RotationRead)
 def create_rotation_plan(
     payload: RotationPlanRequest,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -219,9 +222,12 @@ def create_rotation_plan(
     given location, sorted by growth-stage readiness (peak → over → active →
     early → dormant). Each paddock gets sequential graze / rest windows.
     """
-    location = db.query(UserLocation).filter(UserLocation.id == payload.location_id).first()
+    location = db.query(UserLocation).filter(
+        UserLocation.id == payload.location_id,
+        UserLocation.user_id == current_user.id,
+    ).first()
     if not location:
-        raise HTTPException(status_code=404, detail="Location not found")
+        raise HTTPException(status_code=404, detail="Location not found or access denied")
 
     pasture_fields = (
         db.query(FieldUnit)
@@ -268,7 +274,7 @@ def create_rotation_plan(
 
     rotation = GrazingRotation(
         location_id      = payload.location_id,
-        user_id          = payload.user_id,
+        user_id          = current_user.id,
         name             = payload.name,
         description      = payload.description,
         plan_start       = payload.plan_start,
@@ -298,6 +304,7 @@ def create_rotation_plan(
 def get_rotations_for_location(
     location_id: int,
     limit: int = 10,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -308,7 +315,10 @@ def get_rotations_for_location(
     """
     rotations = (
         db.query(GrazingRotation)
-        .filter(GrazingRotation.location_id == location_id)
+        .filter(
+            GrazingRotation.location_id == location_id,
+            GrazingRotation.user_id == current_user.id,
+        )
         .order_by(GrazingRotation.created_at.desc())
         .limit(limit)
         .all()
@@ -320,6 +330,7 @@ def get_rotations_for_location(
 def update_rotation_entry(
     entry_id: int,
     payload: RotationEntryUpdate,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -344,6 +355,10 @@ def update_rotation_entry(
 
     entry = db.get(GrazingRotationEntry, entry_id)
     if not entry:
+        raise HTTPException(status_code=404, detail="Rotation entry not found")
+
+    rotation = db.get(GrazingRotation, entry.rotation_id)
+    if not rotation or rotation.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Rotation entry not found")
 
     if payload.status is not None:
@@ -384,16 +399,16 @@ def update_rotation_entry(
 @router.delete("/{rotation_id}")
 def delete_rotation(
     rotation_id: int,
-    user_id: int,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
-    DELETE /api/v1/rotation/{rotation_id}?user_id=1
+    DELETE /api/v1/rotation/{rotation_id}
     """
     rotation = db.get(GrazingRotation, rotation_id)
     if not rotation:
         raise HTTPException(status_code=404, detail="Rotation not found")
-    if rotation.user_id != user_id:
+    if rotation.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
 
     db.delete(rotation)

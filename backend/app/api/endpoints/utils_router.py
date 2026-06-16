@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from app.core.database import UserLocation, FieldAnalysis, UserDB, get_db
+from app.core.security import get_current_user
 from app.events.morning_briefing_email import send_morning_briefing_for_user
 from app.services.orchestrator import full_sync_process, short_sync_process
 from app.services.biomass_service import run_biomass_estimation
@@ -14,12 +15,13 @@ from app.core.config import CLEANUP_RETAIN_LATEST_DATASETS
 router = APIRouter()
 
 
-@router.get("/users/{user_id}/locations/{location_id}/stats")
+@router.get("/locations/{location_id}/stats")
 def get_location_analysis_stats(
-        user_id: int,
         location_id: int,
+        current_user: UserDB = Depends(get_current_user),
         db: Session = Depends(get_db)
 ):
+    user_id = current_user.id
     location = db.query(UserLocation).filter(
         UserLocation.id == location_id,
         UserLocation.user_id == user_id
@@ -57,7 +59,10 @@ def get_location_analysis_stats(
 
 
 @router.get("/test_func")
-def test_function(db: Session = Depends(get_db)):
+def test_function(
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     run_irrigation_recommendations(db)
     run_biomass_estimation(db)
     ensure_dem_for_all_locations(db)
@@ -65,7 +70,11 @@ def test_function(db: Session = Depends(get_db)):
 
 
 @router.post("/sync/full", tags=["Synchronisation"])
-async def manual_full_sync(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+async def manual_full_sync(
+    background_tasks: BackgroundTasks,
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     def run_sync():
         full_sync_process(db)
 
@@ -74,7 +83,11 @@ async def manual_full_sync(background_tasks: BackgroundTasks, db: Session = Depe
 
 
 @router.post("/sync/short", tags=["Synchronisation"])
-async def manual_short_sync(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+async def manual_short_sync(
+    background_tasks: BackgroundTasks,
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     def run_sync():
         short_sync_process(db)
 
@@ -86,6 +99,7 @@ async def manual_short_sync(background_tasks: BackgroundTasks, db: Session = Dep
 def manual_storage_cleanup(
     dry_run: bool = True,
     retention_limit: int = CLEANUP_RETAIN_LATEST_DATASETS,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     report = cleanup_failed_datasets(
@@ -97,7 +111,11 @@ def manual_storage_cleanup(
 
 
 @router.post("/briefing/test", tags=["Utils"])
-def test_morning_briefing(user_id: int, db: Session = Depends(get_db)):
+def test_morning_briefing(
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user_id = current_user.id
     user = db.get(UserDB, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")

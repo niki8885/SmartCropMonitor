@@ -17,6 +17,7 @@ from app.core.database import (
     FertilizationLog,
     PesticideLog,
 )
+from app.core.security import get_current_user
 
 router = APIRouter(prefix="/egn", tags=["eGN Report"])
 
@@ -625,26 +626,26 @@ def _build_pdf(data: dict, completeness: dict) -> bytes:
     doc.build(story)
     return buf.getvalue()
 
-@router.get("/report/{user_id}")
+@router.get("/report")
 def get_egn_report(
-    user_id: int,
     year: int = None,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     if year is None:
         year = datetime.datetime.utcnow().year
-    return _collect(user_id, year, db)
+    return _collect(current_user.id, year, db)
 
 
-@router.get("/report/{user_id}/summary")
+@router.get("/report/summary")
 def get_egn_summary(
-    user_id: int,
     year: int = None,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     if year is None:
         year = datetime.datetime.utcnow().year
-    data = _collect(user_id, year, db)
+    data = _collect(current_user.id, year, db)
     comp = _completeness(data)
     return {
         "year":     year,
@@ -653,15 +654,15 @@ def get_egn_summary(
     }
 
 
-@router.get("/report/{user_id}/pdf")
+@router.get("/report/pdf")
 def get_egn_pdf(
-    user_id: int,
     year: int = None,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     if year is None:
         year = datetime.datetime.utcnow().year
-    data = _collect(user_id, year, db)
+    data = _collect(current_user.id, year, db)
     comp = _completeness(data)
     pdf  = _build_pdf(data, comp)
 

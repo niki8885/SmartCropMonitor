@@ -1,5 +1,23 @@
 # Smart Crop Monitor & Agro-Analytics Platform
 
+[![CI](https://github.com/niki8885/SmartCropMonitor/actions/workflows/pre-merge-tests.yml/badge.svg)](https://github.com/niki8885/SmartCropMonitor/actions/workflows/pre-merge-tests.yml)
+[![Build & Deploy](https://github.com/niki8885/SmartCropMonitor/actions/workflows/deploy_status.yml/badge.svg)](https://github.com/niki8885/SmartCropMonitor/actions/workflows/deploy_status.yml)
+[![codecov](https://codecov.io/github/niki8885/SmartCropMonitor/graph/badge.svg?token=GMT9L3FYGB)](https://codecov.io/github/niki8885/SmartCropMonitor)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=niki8885_SmartCropMonitor&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=niki8885_SmartCropMonitor)
+[![Maintainability](https://qlty.sh/gh/niki8885/projects/SmartCropMonitor/maintainability.svg)](https://qlty.sh/gh/niki8885/projects/SmartCropMonitor)
+
+[![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE.MD)
+![Python](https://img.shields.io/badge/Python-3.12-3670A0?style=flat-square&logo=python&logoColor=ffdd54)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.136-009688?style=flat-square&logo=fastapi&logoColor=white)
+![JavaScript](https://img.shields.io/badge/JavaScript-ES2022-323330?style=flat-square&logo=javascript&logoColor=F7DF1E)
+![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=white)
+![Vite](https://img.shields.io/badge/Vite-8-646CFF?style=flat-square&logo=vite&logoColor=white)
+![Haskell](https://img.shields.io/badge/Haskell-9.10-5e5086?style=flat-square&logo=haskell&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18%20+%20PostGIS-4169E1?style=flat-square&logo=postgresql&logoColor=white)
+![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=flat-square&logo=pytorch&logoColor=white)
+![WRF](https://img.shields.io/badge/WRF-4.5.2-013243?style=flat-square)
+![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white)
+
 A high-performance agro-analytical backend designed for real-time farm management, precision agriculture, and automated risk assessment. The platform integrates satellite imagery processing, micro-climate physical modeling (WRF), deep learning segmentation, and biological risk engines to deliver actionable insights directly to farmers.
 
 ---

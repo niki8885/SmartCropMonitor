@@ -12,9 +12,11 @@ from app.core.database import (
     FieldUnit,
     FieldWork,
     SeasonRecord,
+    UserDB,
     get_db,
 )
 from app.core.schemas import FieldWorkType
+from app.core.security import get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -177,10 +179,6 @@ class SuppressionRuleOut(SuppressionRuleBase):
         from_attributes = True
 
 
-def _current_user_id() -> int:
-    raise NotImplementedError("Wire up your auth dependency here")
-
-
 def _get_rule_or_404(db: Session, rule_id: int, user_id: int) -> AlertSuppressionRule:
     rule = db.execute(
         select(AlertSuppressionRule).where(
@@ -197,9 +195,10 @@ def _get_rule_or_404(db: Session, rule_id: int, user_id: int) -> AlertSuppressio
 
 @router.get("/", response_model=list[SuppressionRuleOut])
 def list_rules(
-    user_id: int,           # replace with Depends(get_current_user).id
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    user_id = current_user.id
     return db.execute(
         select(AlertSuppressionRule)
         .where(AlertSuppressionRule.user_id == user_id)
@@ -210,9 +209,10 @@ def list_rules(
 @router.post("/", response_model=SuppressionRuleOut, status_code=201)
 def create_rule(
     payload: SuppressionRuleCreate,
-    user_id: int,           # replace with Depends(get_current_user).id
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    user_id = current_user.id
     rule = AlertSuppressionRule(user_id=user_id, **payload.model_dump())
     db.add(rule)
     db.commit()
@@ -224,20 +224,20 @@ def create_rule(
 @router.get("/{rule_id}", response_model=SuppressionRuleOut)
 def get_rule(
     rule_id: int,
-    user_id: int,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return _get_rule_or_404(db, rule_id, user_id)
+    return _get_rule_or_404(db, rule_id, current_user.id)
 
 
 @router.patch("/{rule_id}", response_model=SuppressionRuleOut)
 def update_rule(
     rule_id: int,
     payload: SuppressionRuleUpdate,
-    user_id: int,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    rule = _get_rule_or_404(db, rule_id, user_id)
+    rule = _get_rule_or_404(db, rule_id, current_user.id)
     for key, value in payload.model_dump(exclude_unset=True).items():
         setattr(rule, key, value)
     db.commit()
@@ -248,10 +248,10 @@ def update_rule(
 @router.delete("/{rule_id}", status_code=204)
 def delete_rule(
     rule_id: int,
-    user_id: int,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    rule = _get_rule_or_404(db, rule_id, user_id)
+    rule = _get_rule_or_404(db, rule_id, current_user.id)
     db.delete(rule)
     db.commit()
 
@@ -259,10 +259,10 @@ def delete_rule(
 @router.post("/{rule_id}/toggle", response_model=SuppressionRuleOut)
 def toggle_rule(
     rule_id: int,
-    user_id: int,
+    current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    rule = _get_rule_or_404(db, rule_id, user_id)
+    rule = _get_rule_or_404(db, rule_id, current_user.id)
     rule.is_active = not rule.is_active
     db.commit()
     db.refresh(rule)

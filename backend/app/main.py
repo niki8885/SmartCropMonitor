@@ -32,9 +32,14 @@ Base.metadata.create_all(bind=engine)
 # =========================
 # App Initialization
 # =========================
+# Hide interactive API docs / OpenAPI schema in production so the API surface
+# and database models are not publicly browsable (toggle via ENABLE_DOCS env var).
 app = FastAPI(
     title=config.API_TITLE,
-    version=config.API_VERSION
+    version=config.API_VERSION,
+    docs_url="/docs" if config.ENABLE_DOCS else None,
+    redoc_url="/redoc" if config.ENABLE_DOCS else None,
+    openapi_url="/openapi.json" if config.ENABLE_DOCS else None,
 )
 
 # =========================

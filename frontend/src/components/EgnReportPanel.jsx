@@ -618,9 +618,9 @@ const PersonnelTab = ({ userId }) => {
     if (!userId) return;
     setLoading(true);
     Promise.all([
-      api.get(`${BASE_PERS}/user/${userId}`),
-      api.get(`${BASE_PERS}/summary/user/${userId}`),
-      api.get(`${BASE_PERS}/expiring-certs/user/${userId}`, { params:{ days:60 } }),
+      api.get(`${BASE_PERS}/user`),
+      api.get(`${BASE_PERS}/summary/user`),
+      api.get(`${BASE_PERS}/expiring-certs/user`, { params:{ days:60 } }),
     ])
       .then(([s, su, ex]) => {
         setStaff(Array.isArray(s.data) ? s.data : []);
@@ -1147,8 +1147,8 @@ const EquipmentTab = ({ userId }) => {
     if (!userId) return;
     setLoading(true);
     Promise.all([
-      api.get(`${BASE_EQ}/user/${userId}`),
-      api.get(`${BASE_EQ}/summary/user/${userId}`),
+      api.get(`${BASE_EQ}/user`),
+      api.get(`${BASE_EQ}/summary/user`),
     ])
       .then(([f, s]) => {
         setFleet(Array.isArray(f.data) ? f.data : []);
@@ -1269,7 +1269,7 @@ const EgnReportPanel = ({ userId }) => {
   const loadSummary = useCallback(() => {
     if (!userId) return;
     setLoading(true);
-    api.get(`${BASE}/report/${userId}/summary`, { params: { year } })
+    api.get(`${BASE}/report/summary`, { params: { year } })
       .then(r => setSummary(r.data))
       .catch(() => setSummary(null))
       .finally(() => setLoading(false));
@@ -1280,7 +1280,7 @@ const EgnReportPanel = ({ userId }) => {
   const downloadPdf = async () => {
     setDownloading(true);
     try {
-      const resp = await api.get(`${BASE}/report/${userId}/pdf`, {
+      const resp = await api.get(`${BASE}/report/pdf`, {
         params: { year },
         responseType: 'blob',
       });
