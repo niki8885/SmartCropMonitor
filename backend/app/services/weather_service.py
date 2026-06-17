@@ -90,26 +90,29 @@ def _weather_changed_expr(stmt):
     ))
 
 
-def _upsert_weather_metrics(db: Session, values: dict) -> WeatherMetrics:
-    existing = (
-        db.query(WeatherMetrics)
-        .filter(
-            WeatherMetrics.location_id == values["location_id"],
-            WeatherMetrics.reference_weather_id == values["reference_weather_id"],
-        )
-        .order_by(WeatherMetrics.id.desc())
-        .first()
+def _upsert_weather_metrics(db: Session, values: dict) -> None:
+    """Insert-or-update one metrics row keyed by (location_id, reference_weather_id).
+
+    Uses a single ``INSERT ... ON CONFLICT DO UPDATE`` instead of the previous
+    SELECT-then-insert. The old pattern had no DB-level guard, so concurrent /
+    overlapping sync jobs (daily 23:45 + short cycles, 2-thread executor) both
+    saw "no existing row" and each issued an INSERT — producing up to ~177
+    duplicate metric rows per weather record and the "barcode" charts.
+
+    Requires the unique constraint ``uq_weather_metrics_location_weather`` to
+    exist in the database — created by
+    ``backend/migrations/2026_06_weather_metrics_dedup_unique.sql`` (it is
+    declared on the model but Base.metadata.create_all does not add constraints
+    to a pre-existing table, so the migration must be applied once).
+    """
+    stmt = insert(WeatherMetrics).values(**values)
+    update_set = {col: getattr(stmt.excluded, col) for col in WEATHER_METRIC_COLUMNS}
+    update_set["window_end_date"] = stmt.excluded.window_end_date
+    stmt = stmt.on_conflict_do_update(
+        constraint="uq_weather_metrics_location_weather",
+        set_=update_set,
     )
-
-    if existing:
-        for column in WEATHER_METRIC_COLUMNS:
-            setattr(existing, column, values.get(column))
-        existing.window_end_date = values["window_end_date"]
-        return existing
-
-    metrics_entry = WeatherMetrics(**values)
-    db.add(metrics_entry)
-    return metrics_entry
+    db.execute(stmt)
 
 
 def _http_session() -> requests.Session:

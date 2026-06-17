@@ -159,6 +159,20 @@ async def get_weather_chart_data(
         .subquery()
     )
 
+    def _weather_data(history):
+        return {
+            "temp": history.temp,
+            "humidity": history.humidity,
+            "precipitation": history.precipitation,
+            "soil_moisture": history.soil_moisture_0_to_1cm,
+            "soil_temperature": history.soil_temperature_0cm,
+            "wind_speed": history.wind_speed,
+        }
+
+    # Main series: Open-Meteo only. Metrics are computed solely from Open-Meteo
+    # rows (see weather_service.weather_metrics), so joining WRF rows here would
+    # interleave NULL-metric points and produce the "barcode" charts. WRF
+    # forecast is returned separately below (wrf_weather).
     results = (
         db.query(WeatherHistory, WeatherMetrics)
         .outerjoin(
@@ -169,23 +183,19 @@ async def get_weather_chart_data(
             WeatherMetrics,
             WeatherMetrics.id == latest_metrics_subq.c.latest_metrics_id,
         )
-        .filter(WeatherHistory.location_id == location_id)
+        .filter(
+            WeatherHistory.location_id == location_id,
+            WeatherHistory.data_source == "open-meteo",
+        )
         .order_by(WeatherHistory.timestamp.asc())
         .all()
     )
 
-    chart_data = []
+    series = []
     for history, metrics in results:
-        chart_data.append({
+        series.append({
             "timestamp": _utc_iso(history.timestamp),
-            "weather_data": {
-                "temp": history.temp,
-                "humidity": history.humidity,
-                "precipitation": history.precipitation,
-                "soil_moisture": history.soil_moisture_0_to_1cm,
-                "soil_temperature": history.soil_temperature_0cm,
-                "wind_speed": history.wind_speed
-            },
+            "weather_data": _weather_data(history),
             "metrics_data": {
                 "gdd": metrics.gdd_base_10 if metrics else None,
                 "rain_cum_30d": metrics.rain_cum_30d if metrics else None,
@@ -196,7 +206,23 @@ async def get_weather_chart_data(
             }
         })
 
-    return chart_data
+    # WRF forecast — weather only (no derived metrics), kept as a separate series
+    # so the UI can overlay it without polluting the metrics charts.
+    wrf_rows = (
+        db.query(WeatherHistory)
+        .filter(
+            WeatherHistory.location_id == location_id,
+            WeatherHistory.data_source == "wrf",
+        )
+        .order_by(WeatherHistory.timestamp.asc())
+        .all()
+    )
+    wrf_weather = [
+        {"timestamp": _utc_iso(h.timestamp), "weather_data": _weather_data(h)}
+        for h in wrf_rows
+    ]
+
+    return {"series": series, "wrf_weather": wrf_weather}
 
 
 def _agg(db: Session, model, location_filter, col_name: str) -> dict:

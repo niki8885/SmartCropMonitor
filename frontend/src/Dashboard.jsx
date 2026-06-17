@@ -370,7 +370,7 @@ const Dashboard = ({ userId, onLogout }) => {
   const [locationCenter, setLocationCenter] = useState(null);
   const [currentWeather, setCurrentWeather] = useState(null);
   const [latestWeather, setLatestWeather]   = useState(null);
-  const [chartData, setChartData]           = useState([]);
+  const [chartData, setChartData]           = useState({ series: [], wrf_weather: [] });
   const [loading, setLoading]               = useState(true);
   const [showAddLocation, setShowAddLocation]       = useState(false);
   const [showSegmentation, setShowSegmentation]     = useState(false);
@@ -416,7 +416,7 @@ const Dashboard = ({ userId, onLogout }) => {
     if (!userId || !locationId) return;
     getCurrentWeather(locationId, userId).then(setCurrentWeather).catch(() => setCurrentWeather(null));
     getWeatherHistory(locationId, userId).then(setLatestWeather).catch(() => setLatestWeather(null));
-    getWeatherMetrics(locationId, userId).then(setChartData).catch(() => setChartData([]));
+    getWeatherMetrics(locationId, userId).then(setChartData).catch(() => setChartData({ series: [], wrf_weather: [] }));
   }, [locationId, userId]);
 
   const handleLocationAdded = (newLocation) => {
@@ -442,7 +442,7 @@ const Dashboard = ({ userId, onLogout }) => {
         return (
           <TwoColumnLayout mapProps={mapProps} left={
             <>
-              <MorningBriefingPanel userId={userId} locationId={locationId} chartData={chartData}/>
+              <MorningBriefingPanel userId={userId} locationId={locationId} chartData={chartData.series}/>
               <AlertsPanel userId={userId} locationId={locationId}/>
               <TasksPanel userId={userId}/>
             </>
@@ -454,7 +454,7 @@ const Dashboard = ({ userId, onLogout }) => {
           <TwoColumnLayout mapProps={mapProps} left={
             <>
               <WeatherMetricsPanel latestWeather={latestWeather} userId={userId} locationId={locationId}/>
-              <WeatherCharts data={chartData}/>
+              <WeatherCharts data={chartData.series} wrfWeather={chartData.wrf_weather}/>
               <SprayingWindowsPanel userId={userId} locationId={locationId}/>
             </>
           }/>

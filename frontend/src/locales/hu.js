@@ -335,6 +335,7 @@ const hu = {
   wc_compare:            'Összehasonlítás',
   wc_sma_trend:          'SMA trend',
   wc_sma_window:         'Ablak:',
+  wc_show_wrf:           'WRF előrejelzés mutatása',
 
   // ── WeatherMetricsPanel ────────────────────────────────────────────────────
   wm_title:              'Feltételek és mutatók',

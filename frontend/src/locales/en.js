@@ -335,6 +335,7 @@ const en = {
   wc_compare:            'Compare with',
   wc_sma_trend:          'SMA trend',
   wc_sma_window:         'Window:',
+  wc_show_wrf:           'Show WRF forecast',
 
   // ── WeatherMetricsPanel ────────────────────────────────────────────────────
   wm_title:              'Conditions & Metrics',

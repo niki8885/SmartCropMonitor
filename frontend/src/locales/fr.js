@@ -386,6 +386,7 @@ const fr = {
   wc_compare:            'Comparer avec',
   wc_sma_trend:          'Tendance SMA',
   wc_sma_window:         'Fenêtre :',
+  wc_show_wrf:           'Afficher la prévision WRF',
 
   // ── WeatherMetricsPanel ────────────────────────────────────────────────────
   wm_title:              'Conditions et indicateurs',

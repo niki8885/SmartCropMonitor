@@ -10,7 +10,13 @@ export const getWeatherHistory = (locationId, userId) =>
     params: { user_id: userId }
   }).then(res => res.data);
 
+// Returns { series, wrf_weather }. Tolerates the legacy array response
+// (Open-Meteo + WRF interleaved) so the UI keeps working during rollout.
 export const getWeatherMetrics = (locationId, userId) =>
   api.get(`/api/v1/weather/location/${locationId}/weather-charts`, {
     params: { user_id: userId }
-  }).then(res => res.data);
+  }).then(res => {
+    const d = res.data;
+    if (Array.isArray(d)) return { series: d, wrf_weather: [] };
+    return { series: d?.series ?? [], wrf_weather: d?.wrf_weather ?? [] };
+  });
