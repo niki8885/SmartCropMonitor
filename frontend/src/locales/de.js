@@ -295,6 +295,7 @@ const de = {
   wc_compare:            'Vergleichen mit',
   wc_sma_trend:          'SMA-Trend',
   wc_sma_window:         'Fenster:',
+  wc_show_wrf:           'WRF-Prognose anzeigen',
 
   // ── WeatherMetricsPanel ────────────────────────────────────────────────────
   wm_title:              'Bedingungen & Kennzahlen',

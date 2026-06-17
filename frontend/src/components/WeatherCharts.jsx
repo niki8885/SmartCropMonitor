@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { useLang } from '../context/LanguageContext';
 
 const C = { green:'#317f43', soil:'#8b6340', mulberry:'#470736', sky:'#1a6fa3', amber:'#b87300', teal:'#1a7a6e', rose:'#b53060', slate:'#4a5568' };
+const WRF_COLOR = '#7d3c98'; // distinct purple for the WRF forecast overlay
 
 const timestampMs = (value) => {
   if (!value) return null;
@@ -15,11 +16,33 @@ const normalizeTimeSeries = (points = []) => {
   const byTime = new Map();
   points.forEach((p) => {
     const t = timestampMs(p.x);
+    // Missing values must become a GAP, not a zero. Number(null) === 0, which
+    // used to pass the finite check and plant false zeros — that was the
+    // vertical "barcode". Drop null/undefined/'' so the line breaks instead.
+    if (t == null || p.y == null || p.y === '') return;
     const y = Number(p.y);
-    if (t == null || !Number.isFinite(y)) return;
+    if (!Number.isFinite(y)) return;
     byTime.set(t, { x: new Date(t).toISOString(), y, t });
   });
   return Array.from(byTime.values()).sort((a, b) => a.t - b.t);
+};
+
+// Split an ascending-by-time series into contiguous runs, breaking wherever a
+// time gap is much larger than the typical sampling step (i.e. data missing).
+// Rendering each run as its own polyline yields a real break, not an
+// interpolated line drawn across the gap.
+const splitSegments = (pts, gapFactor = 1.8) => {
+  if (pts.length < 2) return pts.length ? [pts] : [];
+  const diffs = [];
+  for (let i = 1; i < pts.length; i++) diffs.push(pts[i].t - pts[i - 1].t);
+  const sorted = [...diffs].sort((a, b) => a - b);
+  const medianStep = sorted[Math.floor(sorted.length / 2)] || Infinity;
+  const segs = [[pts[0]]];
+  for (let i = 1; i < pts.length; i++) {
+    if (medianStep !== Infinity && diffs[i - 1] > medianStep * gapFactor) segs.push([pts[i]]);
+    else segs[segs.length - 1].push(pts[i]);
+  }
+  return segs;
 };
 
 const computeSMA = (points, window) => {
@@ -34,11 +57,13 @@ const computeSMA = (points, window) => {
 
 // ── MultiLineChart ────────────────────────────────────────────────────────────
 // primary:   { points:[{x,y}], color, label, unit }
-// secondary: { points:[{x,y}], color, label, unit } | null
+// secondary: { points:[{x,y}], color, label, unit } | null   — right (2nd) Y axis
+// overlay:   { points:[{x,y}], color, label, unit } | null   — shares primary axis (e.g. WRF)
 // smaWindow: 0 = off, >=2 = rolling window size
-const MultiLineChart = ({ primary, secondary = null, smaWindow = 0, cursorIdx, onCursorChange, noDataLabel }) => {
+const MultiLineChart = ({ primary, secondary = null, overlay = null, smaWindow = 0, cursorIdx, onCursorChange, noDataLabel }) => {
   const validPrimary   = useMemo(() => normalizeTimeSeries(primary?.points   || []), [primary?.points]);   // eslint-disable-line
   const validSecondary = useMemo(() => normalizeTimeSeries(secondary?.points || []), [secondary?.points]); // eslint-disable-line
+  const validOverlay   = useMemo(() => normalizeTimeSeries(overlay?.points   || []), [overlay?.points]);   // eslint-disable-line
   const smaPrimary     = useMemo(() => computeSMA(validPrimary,   smaWindow), [validPrimary,   smaWindow]);
   const smaSecondary   = useMemo(() => computeSMA(validSecondary, smaWindow), [validSecondary, smaWindow]);
 
@@ -49,17 +74,19 @@ const MultiLineChart = ({ primary, secondary = null, smaWindow = 0, cursorIdx, o
   );
 
   const hasSecondary = secondary != null && validSecondary.length > 0;
+  const hasOverlay   = overlay != null && validOverlay.length > 0;
   const W = 600, H = 160, padL = 44, padR = hasSecondary ? 48 : 14, padY = 14;
   const innerW = W - padL - padR, innerH = H - padY * 2 - 18;
   const now = Date.now();
 
-  // Shared X range across both series
-  const allTs = [...validPrimary.map(p => p.t), ...validSecondary.map(p => p.t)];
+  // Shared X range across all series
+  const allTs = [...validPrimary.map(p => p.t), ...validSecondary.map(p => p.t), ...validOverlay.map(p => p.t)];
   const minT = Math.min(...allTs), maxT = Math.max(...allTs), rangeT = maxT - minT || 1;
   const sx = (p) => padL + ((p.t - minT) / rangeT) * innerW;
 
-  // Primary Y scale — left axis
-  const ys1 = validPrimary.map(p => p.y);
+  // Primary Y scale — left axis. The overlay (e.g. WRF) shares this axis & unit,
+  // so fold its values in so both fit.
+  const ys1 = [...validPrimary.map(p => p.y), ...validOverlay.map(p => p.y)];
   const minY1 = Math.min(...ys1), maxY1 = Math.max(...ys1), rangeY1 = maxY1 - minY1 || 1;
   const sy1 = (v) => padY + (1 - (v - minY1) / rangeY1) * innerH;
   const yTicks1 = [minY1, minY1 + rangeY1 * 0.5, maxY1];
@@ -87,6 +114,12 @@ const MultiLineChart = ({ primary, secondary = null, smaWindow = 0, cursorIdx, o
     validSecondary.forEach(p => { const d = Math.abs(p.t - curPt1.t); if (d < bestD) { bestD = d; best = p; } });
     return best;
   })();
+  const curPtOv = (() => {
+    if (!curPt1 || !validOverlay.length) return null;
+    let best = validOverlay[0], bestD = Infinity;
+    validOverlay.forEach(p => { const d = Math.abs(p.t - curPt1.t); if (d < bestD) { bestD = d; best = p; } });
+    return best;
+  })();
 
   // X tick marks
   const step   = Math.max(1, Math.floor(validPrimary.length / 6));
@@ -98,6 +131,14 @@ const MultiLineChart = ({ primary, secondary = null, smaWindow = 0, cursorIdx, o
     if (!pts.length) return '';
     return `M${sx(pts[0])},${padY + innerH} ` + pts.map(p => `L${sx(p)},${syFn(p.y)}`).join(' ') + ` L${sx(pts[pts.length - 1])},${padY + innerH} Z`;
   };
+  // Render a line as one <polyline> per contiguous run, so missing stretches
+  // show as real breaks instead of a line interpolated across the gap.
+  const renderLine = (pts, syFn, { color, width = 2, dashed = false, opacity = 1, keyPrefix }) =>
+    splitSegments(pts).map((seg, i) => (
+      <polyline key={`${keyPrefix}-${i}`} points={toPoly(seg, syFn)} fill="none"
+        stroke={color} strokeWidth={width} strokeLinejoin="round" strokeLinecap="round"
+        strokeDasharray={dashed ? '6 3' : undefined} opacity={opacity} />
+    ));
 
   const handleClick = (e) => {
     if (!onCursorChange) return;
@@ -148,13 +189,16 @@ const MultiLineChart = ({ primary, secondary = null, smaWindow = 0, cursorIdx, o
       {hasSecondary && (
         <>
           <path d={toArea(validSecondary, sy2)} fill={`url(#${gId2})`} />
-          <polyline points={toPoly(validSecondary, sy2)} fill="none" stroke={secondary.color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" strokeDasharray="6 3" opacity="0.9" />
+          {renderLine(validSecondary, sy2, { color: secondary.color, dashed: true, opacity: 0.9, keyPrefix: 'sec' })}
         </>
       )}
 
+      {/* Overlay (e.g. WRF) — shares the primary/left axis; dashed line, no fill */}
+      {hasOverlay && renderLine(validOverlay, sy1, { color: overlay.color, dashed: true, opacity: 0.85, keyPrefix: 'ov' })}
+
       {/* Primary area + solid line */}
       <path d={toArea(validPrimary, sy1)} fill={`url(#${gId1})`} />
-      <polyline points={toPoly(validPrimary, sy1)} fill="none" stroke={primary?.color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+      {renderLine(validPrimary, sy1, { color: primary?.color, keyPrefix: 'pri' })}
 
       {/* SMA overlays */}
       {smaPrimary.length > 0 && (
@@ -175,6 +219,7 @@ const MultiLineChart = ({ primary, secondary = null, smaWindow = 0, cursorIdx, o
         const entries = [
           { pt: curPt1, sy: sy1, color: primary?.color, unit: primary?.unit, label: primary?.label },
           ...(curPt2 && hasSecondary ? [{ pt: curPt2, sy: sy2, color: secondary.color, unit: secondary.unit, label: secondary.label }] : []),
+          ...(curPtOv && hasOverlay ? [{ pt: curPtOv, sy: sy1, color: overlay.color, unit: overlay.unit, label: overlay.label }] : []),
         ];
         const tipW = 124, lineH = 14, tipH = 16 + entries.length * lineH;
         const tipX = Math.min(curX + 8, W - padR - tipW);
@@ -200,6 +245,9 @@ const MultiLineChart = ({ primary, secondary = null, smaWindow = 0, cursorIdx, o
       <circle cx={sx(validPrimary[validPrimary.length - 1])} cy={sy1(validPrimary[validPrimary.length - 1].y)} r={4} fill={primary?.color} stroke="#fff" strokeWidth="2" />
       {hasSecondary && (
         <circle cx={sx(validSecondary[validSecondary.length - 1])} cy={sy2(validSecondary[validSecondary.length - 1].y)} r={4} fill={secondary.color} stroke="#fff" strokeWidth="2" />
+      )}
+      {hasOverlay && (
+        <circle cx={sx(validOverlay[validOverlay.length - 1])} cy={sy1(validOverlay[validOverlay.length - 1].y)} r={4} fill={overlay.color} stroke="#fff" strokeWidth="2" />
       )}
 
       {/* X tick labels */}
@@ -241,13 +289,17 @@ const Tab = ({ label, active, color, onClick }) => (
 );
 
 // ── WeatherCharts ─────────────────────────────────────────────────────────────
-const WeatherCharts = ({ data = [] }) => {
+// data:       Open-Meteo series [{ timestamp, weather_data, metrics_data }]
+// wrfWeather: WRF forecast (weather only) [{ timestamp, weather_data }] — shown
+//             as a separate dashed overlay on weather variables, never on metrics.
+const WeatherCharts = ({ data = [], wrfWeather = [] }) => {
   const { t } = useLang();
   const [open, setOpen]             = useState(true);
   const [active, setActive]         = useState('temp');
   const [secondary, setSecondary]   = useState(null);
   const [smaEnabled, setSmaEnabled] = useState(false);
   const [smaWindow, setSmaWindow]   = useState(7);
+  const [showWrf, setShowWrf]       = useState(false);
   const [cursorIdx, setCursorIdx]   = useState(null);
 
   const WEATHER_TABS = [
@@ -280,6 +332,13 @@ const WeatherCharts = ({ data = [] }) => {
     if (!sc) return [];
     return data.map(row => ({ x: row.timestamp, y: sc.src === 'weather' ? row.weather_data?.[sc.key] : row.metrics_data?.[sc.key] }));
   }, [data, secondary]); // eslint-disable-line
+
+  // WRF forecast overlay — only for weather variables (WRF has no derived metrics).
+  const wrfAvailable = cfg.src === 'weather' && wrfWeather.length > 0;
+  const wrfPoints = useMemo(() =>
+    wrfAvailable ? wrfWeather.map(row => ({ x: row.timestamp, y: row.weather_data?.[cfg.key] })) : [],
+    [wrfWeather, cfg.key, wrfAvailable]); // eslint-disable-line
+  const showWrfOverlay = showWrf && wrfAvailable;
 
   const validPrimary   = useMemo(() => normalizeTimeSeries(primaryPoints),   [primaryPoints]);
   const validSecondary = useMemo(() => normalizeTimeSeries(secondaryPoints),  [secondaryPoints]);
@@ -387,6 +446,12 @@ const WeatherCharts = ({ data = [] }) => {
                 <span style={{ fontSize: 12, fontWeight: 700, color: '#666', minWidth: 26 }}>{smaWindow}d</span>
               </>
             )}
+            {wrfAvailable && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: WRF_COLOR, cursor: 'pointer', userSelect: 'none' }}>
+                <input type="checkbox" checked={showWrf} onChange={e => setShowWrf(e.target.checked)} />
+                {t('wc_show_wrf')}
+              </label>
+            )}
           </div>
 
           <div style={chartBox}>
@@ -408,6 +473,12 @@ const WeatherCharts = ({ data = [] }) => {
                     <line x1="0" y1="5" x2="22" y2="5" stroke="#888" strokeWidth="2" strokeDasharray="4 3" opacity="0.6" />
                   </svg>
                   SMA {smaWindow}d
+                </span>
+              )}
+              {showWrfOverlay && (
+                <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color: WRF_COLOR }}>
+                  <LegendLine color={WRF_COLOR} dashed />
+                  {cfg.label} <span style={{ opacity: 0.6, fontSize: 10 }}>(WRF)</span>
                 </span>
               )}
               <span style={{ fontSize: 10, color: '#aaa', display: 'flex', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>
@@ -445,6 +516,7 @@ const WeatherCharts = ({ data = [] }) => {
             <MultiLineChart
               primary={{ points: primaryPoints, color: cfg.color, label: cfg.label, unit: cfg.unit }}
               secondary={secCfg ? { points: secondaryPoints, color: secCfg.color, label: secCfg.label, unit: secCfg.unit } : null}
+              overlay={showWrfOverlay ? { points: wrfPoints, color: WRF_COLOR, label: `${cfg.label} (WRF)`, unit: cfg.unit } : null}
               smaWindow={smaEnabled ? smaWindow : 0}
               cursorIdx={cursorIdx}
               onCursorChange={setCursorIdx}
