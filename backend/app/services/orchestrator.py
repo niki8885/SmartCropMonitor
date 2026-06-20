@@ -12,6 +12,9 @@ from app.core.config import DATA_DIR, MASK_DIR, VIS_DIR, REQUIRED_BANDS, AUX_LAY
 from app.services.field_analysis import validate_pending_analyses
 from app.core.database import UserLocation, FieldAnalysis
 from app.services.ndvi_processor import sateline_metrics, run_per_field_metrics
+from app.services.texture_service import run_texture_metrics
+from app.services.phenology_service import run_phenology
+from app.services import sentinel_download_engine
 from app.services.weather_service import fetch_and_save_weather, weather_metrics
 from app.services.wrf_service import ingest_wrf_output
 from app.services.biomass_service import run_biomass_estimation
@@ -206,6 +209,8 @@ def full_sync_process(db: Session):
         validate_pending_analyses(db)
         sateline_metrics(db)
         run_per_field_metrics(db)
+        run_texture_metrics(db)
+        run_phenology(db)
         run_biomass_estimation(db)
         find_all_anomaly(db)
         find_all_satellite_anomaly(db)
@@ -274,6 +279,19 @@ def short_sync_process(db: Session):
 
 
 def download_sentinel_data(db: Session):
+
+    # Primary (opt-in): parallel package downloader. On any failure, fall through
+    # to the manual implementation below, which stays the default and fallback.
+    if sentinel_download_engine.is_enabled():
+        try:
+            sentinel_download_engine.download_all(db)
+            return
+        except Exception as e:
+            logger.error(
+                f"[sentinel] package downloader failed ({e}); "
+                f"falling back to manual download.", exc_info=True,
+            )
+            db.rollback()
 
     client = Client.open(STAC_API_URL)
     locations = db.query(UserLocation).all()

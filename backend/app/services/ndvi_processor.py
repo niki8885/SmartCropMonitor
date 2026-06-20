@@ -11,6 +11,7 @@ from shapely import wkb
 import geopandas as gpd
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
+from app.services import sentinel_index_engine
 
 
 def perform_haskell_calculation(payload):
@@ -63,19 +64,39 @@ def sateline_metrics(db: Session):
                 print(f"[DEBUG] data_array shape: {data_array.shape}, dims: {data_array.dims}")
                 print(f"[DEBUG] bands: {data_array.coords['band'].values.tolist()}")
 
-                payload = {
-                    "config": 1,
-                    "raw_data": {
-                        "green":    data_array.sel(band='green').values.tolist(),
-                        "red":      data_array.sel(band='red').values.tolist(),
-                        "rededge2": data_array.sel(band='rededge2').values.tolist(),
-                        "nir":      data_array.sel(band='nir').values.tolist(),
-                        "swir16":   data_array.sel(band='swir16').values.tolist(),
-                        "swir22":   data_array.sel(band='swir22').values.tolist()
-                    }
-                }
+                # Primary: compute indices in-process via the Fortran-backed
+                # sentinel_processor package. Fallback: legacy Haskell service.
+                # Both paths yield the same {ndvi_map, gndvi_map, ndre_map,
+                # ndwi_map, nmdi_map} dict, so everything below is unchanged.
+                result = None
+                engine_used = None
 
-                result = perform_haskell_calculation(payload)
+                if sentinel_index_engine.is_enabled():
+                    try:
+                        result = sentinel_index_engine.compute_metrics(data_array)
+                        engine_used = sentinel_index_engine.ENGINE_NAME
+                    except Exception as engine_err:
+                        print(
+                            f"[WARNING] {sentinel_index_engine.ENGINE_NAME} engine failed "
+                            f"for {data.nc_filename} ({engine_err}); falling back to Haskell."
+                        )
+                        result = None
+
+                if result is None:
+                    payload = {
+                        "config": 1,
+                        "raw_data": {
+                            "green":    data_array.sel(band='green').values.tolist(),
+                            "red":      data_array.sel(band='red').values.tolist(),
+                            "rededge2": data_array.sel(band='rededge2').values.tolist(),
+                            "nir":      data_array.sel(band='nir').values.tolist(),
+                            "swir16":   data_array.sel(band='swir16').values.tolist(),
+                            "swir22":   data_array.sel(band='swir22').values.tolist()
+                        }
+                    }
+
+                    result = perform_haskell_calculation(payload)
+                    engine_used = "haskell"
 
                 if result:
                     src_crs = None
@@ -121,9 +142,12 @@ def sateline_metrics(db: Session):
                     data.metrics_status = True
                     data.metrics_filename = output_filename
                     db.commit()
-                    print(f"[SUCCESS] Processed {data.nc_filename}, saved to {output_filename}")
+                    print(
+                        f"[SUCCESS] Processed {data.nc_filename} via {engine_used}, "
+                        f"saved to {output_filename}"
+                    )
                 else:
-                    print(f"[ERROR] Failed to get metrics from Haskell for {data.nc_filename}")
+                    print(f"[ERROR] Failed to get metrics ({engine_used}) for {data.nc_filename}")
 
         except Exception as e:
             db.rollback()
