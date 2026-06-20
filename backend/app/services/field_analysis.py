@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.database import FieldAnalysis
 from app.core.config import HASKELL_SERVICE_URL, MASK_DIR, WEBHOOK_URL, DATA_DIR,REQUIRED_BANDS, MIN_DIM
 from app.monitoring.alerting import AlertService, format_alert
+from app.services import sentinel_validation_engine
 
 
 alert_service = AlertService(webhook_url=WEBHOOK_URL)
@@ -145,7 +146,22 @@ def validate_pending_analyses(db: Session):
             print(f"[WARN] Mask file missing for analysis_id={analysis.id}. Skipping.")
             continue
 
-        result = perform_haskell_validation(mask_path, threshold=0.3)
+        # Primary: in-process Fortran SCL validation (sentinel_processor).
+        # Fallback: legacy Haskell field-stats config=2. Both return the same
+        # dict, so everything below is unchanged.
+        result = None
+        if sentinel_validation_engine.is_enabled():
+            try:
+                result = sentinel_validation_engine.validate_scl_mask(mask_path, threshold=0.3)
+            except Exception as engine_err:
+                print(
+                    f"[WARNING] {sentinel_validation_engine.ENGINE_NAME} validation failed "
+                    f"for analysis_id={analysis.id} ({engine_err}); falling back to Haskell."
+                )
+                result = None
+
+        if result is None:
+            result = perform_haskell_validation(mask_path, threshold=0.3)
 
         if result:
             confidence_score = result.get('confidence_score', 0.0)

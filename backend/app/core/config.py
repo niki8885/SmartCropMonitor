@@ -105,6 +105,56 @@ ENVIRONMENT = os.getenv("ENVIRONMENT", "development").strip().lower()
 ENABLE_DOCS = _env_bool("ENABLE_DOCS", ENVIRONMENT != "production")
 
 
+# Spectral-index engine. When enabled, per-scene field metrics
+# (ndvi/gndvi/ndre/ndwi/nmdi) are computed in-process via the Fortran-backed
+# `sentinel_processor` package instead of the Haskell field-stats microservice.
+# The Haskell service stays as the automatic fallback whenever the package or
+# its native libraries are unavailable, so the pipeline never breaks.
+SENTINEL_INDEX_ENGINE_ENABLED = _env_bool("SENTINEL_INDEX_ENGINE_ENABLED", True)
+
+# SCL cloud/snow validation via the sentinel_processor Fortran kernel (config=2
+# replacement). The kernel is a line-for-line port of the Haskell validateSCL,
+# so confidence/cloud/snow scoring is identical. Haskell stays as fallback.
+SENTINEL_VALIDATION_ENGINE_ENABLED = _env_bool("SENTINEL_VALIDATION_ENGINE_ENABLED", True)
+
+# Optional per-band denoising applied inside the index engine *before* indices
+# are computed (sentinel_processor filters). Off by default so output stays
+# byte-identical to the Haskell path; enabling it trades exact parity for fewer
+# speckle-driven false anomalies. method: off | median | gaussian | bilateral.
+# median/gaussian are value-scale invariant (bands are raw DN); bilateral's
+# sigma_r is interpreted as a fraction of the band's p2–p98 range.
+SENTINEL_DENOISE_METHOD = os.getenv("SENTINEL_DENOISE_METHOD", "off").strip().lower()
+SENTINEL_DENOISE_RADIUS = int(os.getenv("SENTINEL_DENOISE_RADIUS", 1))
+SENTINEL_DENOISE_SIGMA = float(os.getenv("SENTINEL_DENOISE_SIGMA", 1.0))
+SENTINEL_DENOISE_SIGMA_S = float(os.getenv("SENTINEL_DENOISE_SIGMA_S", 2.0))
+SENTINEL_DENOISE_SIGMA_R = float(os.getenv("SENTINEL_DENOISE_SIGMA_R", 0.1))
+
+# GLCM texture features (sentinel_processor.texture). Additive: computes
+# energy/contrast/homogeneity on the per-scene NDVI and stores per-field
+# aggregates as FieldData rows (metric_type glcm_*). Has a NumPy fallback in the
+# package, so it works even without the Fortran texture lib.
+SENTINEL_TEXTURE_ENGINE_ENABLED = _env_bool("SENTINEL_TEXTURE_ENGINE_ENABLED", True)
+SENTINEL_TEXTURE_WINDOW = int(os.getenv("SENTINEL_TEXTURE_WINDOW", 7))
+SENTINEL_TEXTURE_DISTANCE = int(os.getenv("SENTINEL_TEXTURE_DISTANCE", 1))
+SENTINEL_TEXTURE_ANGLE = int(os.getenv("SENTINEL_TEXTURE_ANGLE", -1))
+
+# Per-field phenology (sentinel_processor.analysis). Additive: computes
+# SOS/EOS/peak DOY + peak NDVI per field from its accumulated NDVI history and
+# stores one FieldData row (metric_type='phenology'); DOYs live in extra JSON
+# because they overflow Numeric(6,4), peak_val is the numeric column.
+SENTINEL_PHENOLOGY_ENABLED = _env_bool("SENTINEL_PHENOLOGY_ENABLED", True)
+SENTINEL_PHENOLOGY_LOOKBACK_DAYS = int(os.getenv("SENTINEL_PHENOLOGY_LOOKBACK_DAYS", 365))
+SENTINEL_PHENOLOGY_MIN_OBS = int(os.getenv("SENTINEL_PHENOLOGY_MIN_OBS", 5))
+
+# Sentinel-2 download via the sentinel_processor package (parallel band fetch).
+# OPT-IN, default OFF: it changes how scenes are fetched, so it must be smoke-
+# tested live before enabling. When on, the engine writes the identical file
+# layout/naming the pipeline expects (DATA_DIR/MASK_DIR/VIS_DIR + FieldAnalysis
+# rows); on any failure the orchestrator falls back to the manual downloader.
+SENTINEL_DOWNLOAD_ENGINE_ENABLED = _env_bool("SENTINEL_DOWNLOAD_ENGINE_ENABLED", False)
+SENTINEL_DOWNLOAD_LOOKBACK_DAYS = int(os.getenv("SENTINEL_DOWNLOAD_LOOKBACK_DAYS", 60))
+SENTINEL_DOWNLOAD_KEEP_ITEMS = int(os.getenv("SENTINEL_DOWNLOAD_KEEP_ITEMS", 10))
+
 ALERT_EMAIL_ENABLED = _env_bool("ALERT_EMAIL_ENABLED", True)
 ALERT_FROM_EMAIL = os.getenv("ALERT_FROM_EMAIL", BRIEFING_FROM_EMAIL)
 URGENT_ALERT_MIN_PRIORITY = os.getenv("URGENT_ALERT_MIN_PRIORITY", "HIGH").upper()
