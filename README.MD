@@ -18,6 +18,8 @@
 ![WRF](https://img.shields.io/badge/WRF-4.5.2-013243?style=flat-square)
 ![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white)
 
+> **Notice:** The live production instance is currently unavailable due to maintenance costs. You are welcome to deploy the platform locally or on your own server using the provided Docker configuration.
+
 A high-performance agro-analytical backend designed for real-time farm management, precision agriculture, and automated risk assessment. The platform integrates satellite imagery processing, micro-climate physical modeling (WRF), deep learning segmentation, and biological risk engines to deliver actionable insights directly to farmers.
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/Z8Z01TOFUW)
